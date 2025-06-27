@@ -9,5 +9,7 @@ package main;
  * @author Kevin
  */
 public class TubesJarkom {
-    
+    public static void main(String[] args) {
+        System.out.println("Tes");
+    }
 }

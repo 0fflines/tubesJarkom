@@ -1,5 +1,6 @@
 package main;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -14,13 +15,13 @@ public class Server {
         this.port = port;
     }
 
-    public Scanner initConnection(){
+    public DataInputStream initConnection(){
         try{
             welcomeSocket = new ServerSocket(port);
             System.out.println("port "+port+" open");
             clientSocket = welcomeSocket.accept();
             System.out.println("port "+ port +" connected");
-            return new Scanner(clientSocket.getInputStream());
+            return new DataInputStream(clientSocket.getInputStream());
         }catch(Exception e){
             e.printStackTrace();
         }

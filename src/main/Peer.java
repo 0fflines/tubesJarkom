@@ -1,5 +1,6 @@
 package main;
 
+import java.io.DataInputStream;
 import java.util.HashSet;
 import java.util.Scanner;
 
@@ -18,22 +19,26 @@ public class Peer {
     }
 
     public void start(){
-        new Thread(() -> client.initConnections()).start();
-        Scanner in = server.initConnection();
+        //initConnection Client/Server perlu ada di thread salah satu soalnya client sama server harus dimulai barengan
+        new Thread(() -> client.initConnection()).start();
+        DataInputStream in = server.initConnection();
 
         //Thread buat baca incoming message
         new Thread(() ->{
-            while (in.hasNextLine()) {
-                String packet = in.nextLine();
-                handleMessage(packet);
+            while (true) {
+                try {
+                    String packet = in.readUTF();
+                    handleMessage(packet);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
-            in.close();
         }).start();
 
         Scanner sender = new Scanner(System.in);
         while(sender.hasNextLine()){
             String msg = sender.nextLine();
-            
+            sendMessage(msg);
         }
     }
 
@@ -45,17 +50,18 @@ public class Peer {
 
         if (seenMessage.add(msgId)) {
             System.out.println(sender + ": " + content);
-            client.forwardMessage(packet);
+            client.forwardPacket(packet);
         }
     }
 
+    //kirim message bareng IdMsg sama username pengirim
     public void sendMessage(String text) {
         long now = System.currentTimeMillis();
         String base  = text + now;
         String msgId = Integer.toString(base.hashCode());
         
-        String packet = msgId + "|" + username + "|" + text;
+        String packet = msgId + "|" + username + "|" + text+now;
         seenMessage.add(msgId);
-        client.forwardMessage(packet);
+        client.forwardPacket(packet);
     }
 }

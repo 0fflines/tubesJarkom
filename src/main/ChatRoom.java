@@ -1,53 +1,40 @@
 package main;
 
-import javax.swing.DefaultListModel;
-import javax.swing.SwingUtilities;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
-
+/**
+ * Kelas ini merepresentasikan sebuah room chat dalam konteks P2P sederhana (berbasis konsol).
+ * Fungsinya adalah sebagai penyimpan nama room dan menampilkan pesan.
+ */
 public class ChatRoom {
+
     private final String name;
     private final String owner;
-    private LocalDateTime lastAnnounced;
-    private final DefaultListModel<String> messageModel;
-    private final DefaultListModel<String> userListModel;
-    private final Set<String> detectedUsers;
 
+    /**
+     * Konstruktor untuk ChatRoom.
+     * @param name Nama room.
+     * @param owner Pembuat room.
+     */
     public ChatRoom(String name, String owner) {
         this.name = name;
         this.owner = owner;
-        this.lastAnnounced = LocalDateTime.now();
-        this.messageModel = new DefaultListModel<>();
-        this.userListModel = new DefaultListModel<>();
-        this.detectedUsers = new HashSet<>();
-        this.messageModel.addElement("--- Welcome to room '" + name + "' (Owner: " + owner + ") ---");
-        addUser(owner); // Tambahkan pemilik sebagai pengguna pertama
+        System.out.println("--- Anda sekarang berada di room '" + name + "' (Owner: " + owner + ") ---");
     }
 
-    public String getName() { return name; }
-    public String getOwner() { return owner; }
-    public DefaultListModel<String> getMessageModel() { return messageModel; }
-    public DefaultListModel<String> getUserListModel() { return userListModel; }
-
-    public void updateLastAnnounced() {
-        this.lastAnnounced = LocalDateTime.now();
+    /**
+     * Mengembalikan nama dari room ini.
+     * @return String nama room.
+     */
+    public String getName() {
+        return name;
     }
 
-    public boolean isStale(Duration timeout) {
-        return Duration.between(this.lastAnnounced, LocalDateTime.now()).compareTo(timeout) > 0;
-    }
-
-    public void addMessage(String sender, String content) {
-        String formattedMessage = String.format("[%s]: %s", sender, content);
-        SwingUtilities.invokeLater(() -> messageModel.addElement(formattedMessage));
-        addUser(sender);
-    }
-
-    private void addUser(String username) {
-        if (detectedUsers.add(username)) {
-            SwingUtilities.invokeLater(() -> userListModel.addElement(username));
-        }
+    /**
+     * Menampilkan pesan yang diformat ke konsol.
+     * @param sender Pengirim pesan.
+     * @param content Isi pesan.
+     */
+    public void displayMessage(String sender, String content) {
+        // Langsung cetak ke konsol, sesuai dengan cara kerja Peer.java saat ini.
+        System.out.println(String.format("[%s]: %s", sender, content));
     }
 }

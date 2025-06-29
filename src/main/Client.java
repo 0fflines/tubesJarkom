@@ -5,47 +5,50 @@ import java.io.IOException;
 import java.net.Socket;
 
 public class Client {
-    public final String destinationHost;
-    public final int destinationPort;
-    private DataOutputStream out;
     private Socket socket;
+    private DataOutputStream out;
+    public String destinationHost;
+    public int destinationPort;
 
-    public Client(String host, int port){
+    public Client(String host, int port) {
         this.destinationHost = host;
         this.destinationPort = port;
     }
 
-    public void initConnection(){
-        //Sampai client ketemu server, client bakal coba terus setiap 0.5 detik
-        while(out == null){
-            System.out.println("Trying connection...");
-            try {
-                System.out.println("Attempting connection to "+destinationHost+" "+destinationPort);
-                Socket socket = new Socket(destinationHost, destinationPort);
-                System.out.println("Client connected to "+destinationHost+"  "+destinationPort);
-                out = new DataOutputStream(socket.getOutputStream());
-            } catch (IOException e) {
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            }
+    public boolean initConnection() {
+        try {
+            this.socket = new Socket(destinationHost, destinationPort);
+            this.out = new DataOutputStream(socket.getOutputStream());
+            System.out.println("[Client] Terhubung ke peer: " + destinationHost + ":" + destinationPort);
+            return true;
+        } catch (IOException e) {
+            System.err.println("[Client] Gagal terhubung ke peer: " + destinationHost + ":" + destinationPort);
+            return false;
         }
     }
 
-    public void forwardPacket(String message){
-        try {
-            out.writeUTF(message);
-        } catch (Exception e) {
-            e.printStackTrace();
+    public void forwardPacket(String packet) {
+        if (out != null) {
+            try {
+                out.writeUTF(packet);
+                out.flush();
+            } catch (IOException e) {
+                System.err.println("[Client] Gagal mengirim paket. Mencoba menyambung ulang...");
+                initConnection(); // Coba sambung ulang jika gagal
+            }
+        } else {
+             System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
         }
     }
 
     public void closeConnection() {
         try {
-            out.close();
-            socket.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+                System.out.println("[Client] Koneksi ke " + destinationHost + " ditutup.");
+            }
+        } catch (IOException e) {
+            // Abaikan error saat menutup
         }
-        out = null;
-        socket = null;
     }
 }

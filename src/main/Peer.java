@@ -1,132 +1,185 @@
 package main;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.net.InetAddress;
-import java.net.Socket;
-import java.util.HashSet;
-import java.util.Scanner;
+import java.io.*;
+import java.net.*;
+import java.util.*;
+import java.util.concurrent.*;
 
-//NOTE: di function start buat ngirim message masih pake System.in
-
-//Untuk discovery network bisa berkerja, wifi harus memiliki subnet /24
-//dan semua ip dalam range yang sama (x.x.x.1 sampai x.x.x.255)
-
-//program tidak bisa dijalankan di host yang sama (1 host 2 peer)
-public class Peer {
-    private String hostIp;
-    private String subnet;
-    private String username;
-    private Server server;
-    private Client chatClient;
-    private HashSet<String> seenMessage = new HashSet<>();
-    private String lastJoinHost;
+public class Peer implements Server.PacketListener {
+    private final String username;
+    private final String hostIp;
+    private final String subnet;
     private static final int chatPort = 5000;
 
-    Peer(String username){
+    private final Server server;
+    private Client chatClient;
+    
+    private final HashSet<String> seenPacketIDs = new HashSet<>();
+    private final Map<String, ChatRoom> knownRooms = new ConcurrentHashMap<>();
+    private ChatRoom activeChatRoom;
+    private String lastJoinRequesterHost;
+
+    public Peer(String username) {
         this.username = username;
         try {
-            hostIp = InetAddress.getLocalHost().getHostAddress();
-        } catch (Exception e) {
-            hostIp = null;
+            this.hostIp = InetAddress.getLocalHost().getHostAddress();
+            this.subnet = hostIp.substring(0, hostIp.lastIndexOf(".") + 1);
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("Tidak bisa menemukan IP lokal", e);
         }
-        //dari 192.168.1.1 menjadi 192.168.1.
-        subnet = hostIp.substring(0, hostIp.lastIndexOf(".")+1);
+        
+        // 1. Buat komponen Server dan daftarkan Peer ini sebagai pendengar
+        this.server = new Server(chatPort);
+        this.server.setPacketListener(this);
+        this.server.start();
 
-        server = new Server(chatPort);
+        // 2. Inisialisasi awal client (terhubung ke diri sendiri)
+        this.chatClient = new Client(hostIp, chatPort);
+        this.chatClient.initConnection();
 
-        server.setJoinListener((newHost, replyOut) ->{
-            // stash for READY
-            lastJoinHost = newHost;
-            // reply with current successor
-            replyOut.writeUTF("SUCCESSOR|" + chatClient.destinationHost);
-        });
+        // 3. Masuk ke room default
+        this.activeChatRoom = new ChatRoom("general", "System");
+        this.knownRooms.put("general", this.activeChatRoom);
 
-        server.setReadyListener(() -> {
-            //tutup socket sekarang
-            chatClient.closeConnection();
-
-            // splice in the previously‑joined peer:
-            chatClient = new Client(lastJoinHost, chatPort);
-            chatClient.initConnection();
-        });
-
-        server.setChatListener(packet -> {
-            // your existing handleMessage(packet) logic
-            handleMessage(packet);
-        });
-
-        try {
-            server.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        chatClient = new Client(hostIp, chatPort);
-        chatClient.initConnection();
-
-        discoverAndJoin();
+        // 4. Jalankan discovery dan input user
+        new Thread(this::discoverAndJoin).start();
         startChatIO();
     }
 
-    private void startChatIO() {
-        Scanner sc = new Scanner(System.in);
-        while (sc.hasNextLine()) {
-            sendMessage(sc.nextLine());
+    @Override
+    public void onPacketReceived(String packet, DataOutputStream replyStream) {
+        String[] parts = packet.split("\\|", 2);
+        String type = parts[0];
+        String data = parts.length > 1 ? parts[1] : "";
+
+        // Handshake diproses secara langsung
+        try {
+            if ("JOIN".equals(type)) {
+                lastJoinRequesterHost = data;
+                String successorHost = (chatClient != null) ? chatClient.destinationHost : hostIp;
+                replyStream.writeUTF("SUCCESSOR|" + successorHost);
+                System.out.println("\n[SISTEM] Merespon permintaan JOIN dari " + data);
+                return;
+            } else if ("READY".equals(type)) {
+                System.out.println("\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
+                chatClient.closeConnection();
+                chatClient = new Client(lastJoinRequesterHost, chatPort);
+                chatClient.initConnection();
+                return;
+            }
+        } catch (IOException e) {
+            System.err.println("Error saat handshake: " + e.getMessage());
         }
-        sc.close();
-    }
 
-    private void handleMessage(String packet) {
-        String[] parts = packet.split("\\|", 3);
-        String msgId = parts[0];
-        String sender = parts[1];
-        String content = parts[2];
-
-        if (seenMessage.add(msgId)) {
-            System.out.println(sender + ": " + content);
+        // Pesan gossip (CHAT, ROOM_ANNOUNCE)
+        if (seenPacketIDs.add(packet)) {
+            if ("CHAT".equals(type)) {
+                handleChatMessage(data);
+            } else if ("ROOM_ANNOUNCE".equals(type)) {
+                handleRoomAnnouncement(data);
+            }
+            // Teruskan paket gossip
             chatClient.forwardPacket(packet);
         }
     }
 
-    //kirim message bareng IdMsg sama username pengirim
-    public void sendMessage(String text) {
-        long now = System.currentTimeMillis();
-        String base  = text + now;
-        String msgId = Integer.toString(base.hashCode());
-        
-        String packet = msgId + "|" + username + "|" + text+now;
-        seenMessage.add(msgId);
-        chatClient.forwardPacket(packet);
+    private void handleChatMessage(String data) {
+        String[] parts = data.split("\\|", 3); // sender|roomName|content
+        if (parts.length < 3) return;
+        String sender = parts[0];
+        String roomName = parts[1];
+        String content = parts[2];
+        if (activeChatRoom != null && activeChatRoom.getName().equals(roomName)) {
+            System.out.printf("\n[%s] %s: %s\n> ", roomName, sender, content);
+        }
+    }
+    
+    private void handleRoomAnnouncement(String data) {
+        String[] parts = data.split("\\|", 2); // roomName|owner
+        if (parts.length < 2) return;
+        String roomName = parts[0];
+        String owner = parts[1];
+        knownRooms.computeIfAbsent(roomName, k -> new ChatRoom(k, owner));
     }
 
+    public void sendMessage(String roomName, String message) {
+        String msgId = UUID.randomUUID().toString();
+        String packet = String.format("CHAT|%s|%s|%s|%s", username, roomName, message, msgId);
+        seenPacketIDs.add(packet);
+        chatClient.forwardPacket(packet);
+    }
+    
+    public void createRoom(String roomName) {
+        if (!knownRooms.containsKey(roomName)) {
+            ChatRoom newRoom = new ChatRoom(roomName, this.username);
+            knownRooms.put(roomName, newRoom);
+            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.username;
+            seenPacketIDs.add(packet);
+            chatClient.forwardPacket(packet);
+        }
+    }
+
+    private void startChatIO() {
+        Scanner sc = new Scanner(System.in);
+        System.out.println("\n--- P2P Chat Console ---");
+        System.out.println("Perintah: CREATE <room>, SEND <room> <msg>, JOIN <room>, EXIT");
+        System.out.print("> ");
+        while (sc.hasNextLine()) {
+            String line = sc.nextLine().trim();
+            String[] parts = line.split(" ", 3);
+            String command = parts[0].toUpperCase();
+            switch (command) {
+                case "CREATE":
+                    if(parts.length > 1) createRoom(parts[1]);
+                    break;
+                case "SEND":
+                    if(parts.length > 2) sendMessage(parts[1], parts[2]);
+                    break;
+                case "JOIN":
+                    if(parts.length > 1) {
+                         this.activeChatRoom = knownRooms.get(parts[1]);
+                         if(this.activeChatRoom != null) {
+                             System.out.println("Pindah ke room: " + parts[1]);
+                         } else {
+                             System.out.println("Room " + parts[1] + " tidak ditemukan.");
+                         }
+                    }
+                    break;
+                case "EXIT":
+                    System.exit(0);
+                    return;
+            }
+            System.out.print("> ");
+        }
+        sc.close();
+    }
+    
+    // Metode discoverAndJoin Anda yang canggih bisa diletakkan di sini.
+    // Pastikan untuk menyesuaikan cara ia menggunakan Client dan Server.
     private void discoverAndJoin(){
+        System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
         for(int i = 1; i <= 254; i++){
             String ip = subnet+i;
             if(ip.equals(hostIp)) continue;
-            try(Socket s = new Socket(ip, chatPort)){
+            try(Socket s = new Socket()){
+                s.connect(new InetSocketAddress(ip, chatPort), 200);
                 DataInputStream in = new DataInputStream(s.getInputStream());
                 DataOutputStream out = new DataOutputStream(s.getOutputStream());
 
                 out.writeUTF("JOIN|"+hostIp);
 
                 String response = in.readUTF();
-                //--0 JOIN --1 upflow's ip --2 chatPort
-                String[] responsePart = response.split("\\|");
+                String successorIp = response.split("\\|")[1];
 
-                chatClient = new Client(responsePart[1], chatPort);
-                chatClient.initConnection();
+                this.chatClient = new Client(successorIp, chatPort);
+                this.chatClient.initConnection();
 
                 try(Socket ack = new Socket(ip, chatPort)){
-                    DataOutputStream ackOut = new DataOutputStream(ack.getOutputStream());
-                    ackOut.writeUTF("READY");
+                    new DataOutputStream(ack.getOutputStream()).writeUTF("READY");
                 }
                 return;
             } catch (Exception e) {}
         }
-
-        //Jika sampai sini, berarti Peer ini adalah yang pertama di network
-        chatClient = new Client(hostIp, chatPort);
-        chatClient.initConnection();
+        // Jika sampai sini, berarti Peer ini adalah yang pertama di network
     }
 }

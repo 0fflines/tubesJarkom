@@ -58,7 +58,7 @@ public class Peer implements Server.PacketListener {
 
         // Handshake diproses secara langsung
         try {
-            if ("JOIN".equals(type)) {
+            if ("JOIN_NETWORK".equals(type)) {
                 lastJoinRequesterHost = data;
                 String successorHost = (chatClient != null) ? chatClient.destinationHost : hostIp;
                 replyStream.writeUTF("SUCCESSOR|" + successorHost);
@@ -71,7 +71,7 @@ public class Peer implements Server.PacketListener {
                 chatClient = new Client(lastJoinRequesterHost, chatPort);
                 chatClient.initConnection();
                 return;
-            } else if ("LEAVE".equals(type)) {
+            } else if ("LEAVE_NETWORK".equals(type)) {
                 if (data.equals(chatClient.destinationHost))
                     leaveAck(parts[2], Integer.parseInt(parts[3]));
                 else {
@@ -80,7 +80,7 @@ public class Peer implements Server.PacketListener {
                     }
                 }
                 return;
-            } else if ("ACK_LEAVE".equals(type)) {
+            } else if ("LEAVE_ACK".equals(type)) {
                 if (!data.equals(hostIp))
                     return;
                 System.out.println("[SISTEM] Menerima ACK_LEAVE dari predecessor");
@@ -94,12 +94,25 @@ public class Peer implements Server.PacketListener {
             System.err.println("Error saat handshake: " + e.getMessage());
         }
 
-        // Pesan gossip (CHAT, ROOM_ANNOUNCE)
+        // Pesan gossip (CHAT, ROOM_ANNOUNCE, JOIN_ROOM, EXIT_ROOM)
         if (seenPacketIDs.add(packet)) {
             if ("CHAT".equals(type)) {
                 handleChatMessage(data);
             } else if ("ROOM_ANNOUNCE".equals(type)) {
                 handleRoomAnnouncement(data);
+            } else if ("JOIN_ROOM".equals(type)) {
+                ChatRoom room = knownRooms.get(data);
+                // masukkan Ip Host dan usernamenya kedalam list user chatroom
+                String joinIp = parts[2];
+                String joinUsername = parts[3];
+                room.addUser(joinIp, joinUsername);
+                System.out.printf("[SISTEM] %s(%s) telah join room %s", joinUsername, joinIp, data);
+            } else if ("EXIT_ROOM".equals(type)) {
+                ChatRoom room = knownRooms.get(data);
+                String joinIp = parts[2];
+                String joinUsername = parts[3];
+                room.removeUser(parts[2]);
+                System.out.printf("[SISTEM] %s(%s) telah keluar room %s", joinUsername, joinIp, data);
             }
             // Teruskan paket gossip
             synchronized (clientLock) {
@@ -108,16 +121,16 @@ public class Peer implements Server.PacketListener {
         }
     }
 
-    public void leave() {
+    public void leaveNetwork() {
         // jika hanya ada 1 peer di network, langsung matikan
         if (chatClient.destinationHost.equals(hostIp)) {
             System.out.println("[SISTEM] Mematikan Network");
             chatClient.closeConnection();
             System.exit(0);
         }
-        String packet = "LEAVE|" + hostIp + "|" + chatClient.destinationHost + "|" + chatClient.destinationPort;
+        String packet = "LEAVE_NETWORK|" + hostIp + "|" + chatClient.destinationHost + "|" + chatClient.destinationPort;
 
-        synchronized(clientLock){
+        synchronized (clientLock) {
             chatClient.forwardPacket(packet);
         }
         System.out.println("[SISTEM] Mengirim notifikasi LEAVE");
@@ -143,7 +156,7 @@ public class Peer implements Server.PacketListener {
 
     public void leaveAck(String newSuccessorIP, int newSuccessorPort) {
         synchronized (clientLock) {
-            String ackPacket = "ACK_LEAVE|" + chatClient.destinationHost;
+            String ackPacket = "LEAVE_ACK|" + chatClient.destinationHost;
             chatClient.forwardPacket(ackPacket);
             System.out.printf("[SISTEM] %s leaving; recconect to %s : %d\n", chatClient.destinationHost, newSuccessorIP,
                     newSuccessorPort);
@@ -198,7 +211,7 @@ public class Peer implements Server.PacketListener {
     private void startChatIO() {
         Scanner sc = new Scanner(System.in);
         System.out.println("\n--- P2P Chat Console ---");
-        System.out.println("Perintah: CREATE <room>, SEND <room> <msg>, JOIN <room>, EXIT");
+        System.out.println("Perintah: CREATE <room>, SEND <room> <msg>, JOIN <room>, EXIT <room>, OFF");
         System.out.print("> ");
         while (sc.hasNextLine()) {
             String line = sc.nextLine().trim();
@@ -218,12 +231,24 @@ public class Peer implements Server.PacketListener {
                         this.activeChatRoom = knownRooms.get(parts[1]);
                         if (this.activeChatRoom != null) {
                             System.out.println("Pindah ke room: " + parts[1]);
+                            String packet = "JOIN_ROOM|" + parts[1] + "|" + hostIp + "|" + username;
+                            synchronized (clientLock) {
+                                chatClient.forwardPacket(packet);
+                            }
                         } else {
                             System.out.println("Room " + parts[1] + " tidak ditemukan.");
                         }
                     }
                     break;
                 case "EXIT":
+                    if (parts.length > 1) {
+                        this.activeChatRoom = null;
+                        String packet = "EXIT_ROOM|" + parts[1] + "|" + hostIp + "|" + username;
+                        synchronized (clientLock) {
+                            chatClient.forwardPacket(packet);
+                        }
+                    }
+                case "OFF":
                     System.exit(0);
                     return;
             }
@@ -245,7 +270,7 @@ public class Peer implements Server.PacketListener {
                 DataInputStream in = new DataInputStream(s.getInputStream());
                 DataOutputStream out = new DataOutputStream(s.getOutputStream());
 
-                out.writeUTF("JOIN|" + hostIp);
+                out.writeUTF("JOIN_NETWORK|" + hostIp);
 
                 String response = in.readUTF();
                 String successorIp = response.split("\\|")[1];

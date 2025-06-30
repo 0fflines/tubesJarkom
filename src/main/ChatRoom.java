@@ -2,6 +2,7 @@ package main;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 
 // NOTE: Versi ini tidak menggunakan komponen Swing agar tetap sederhana
 // dan sesuai dengan logika konsol yang ada di Peer Anda.
@@ -9,11 +10,13 @@ public class ChatRoom {
     private final String name;
     private final String owner;
     private LocalDateTime lastAnnounced;
+    private HashMap<String, String> users;
 
     public ChatRoom(String name, String owner) {
         this.name = name;
         this.owner = owner;
         this.lastAnnounced = LocalDateTime.now();
+        users = new HashMap<>();
         System.out.println("--- Info: Room '" + name + "' (Owner: " + owner + ") terdeteksi/dibuat. ---");
     }
 
@@ -28,5 +31,13 @@ public class ChatRoom {
 
     public void displayMessage(String sender, String content) {
         System.out.println(String.format("[%s]: %s", sender, content));
+    }
+
+    public void addUser(String ip, String username){
+        users.put(ip, username);
+    }
+
+    public void removeUser(String ip){
+        users.remove(ip);
     }
 }

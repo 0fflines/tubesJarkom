@@ -10,14 +10,15 @@ package Jarkom.chatapp.models;
  */
 public class User {
     private String username;
-    private String password; // In real app, store hashed password only
+    private boolean online;
     
-    public User(String username, String password) {
+    public User(String username, boolean online) {
         this.username = username;
-        this.password = password;
+        this.online = online;
     }
-
-    // Getters
+    
+    // Getters and setters
     public String getUsername() { return username; }
-    public String getPassword() { return password; }
+    public boolean isOnline() { return online; }
+    public void setOnline(boolean online) { this.online = online; }
 }

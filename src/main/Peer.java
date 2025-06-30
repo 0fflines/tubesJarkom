@@ -13,11 +13,15 @@ public class Peer implements Server.PacketListener {
 
     private final Server server;
     private Client chatClient;
-    
+
     private final HashSet<String> seenPacketIDs = new HashSet<>();
     private final Map<String, ChatRoom> knownRooms = new ConcurrentHashMap<>();
     private ChatRoom activeChatRoom;
     private String lastJoinRequesterHost;
+
+    private final Object leaveLock = new Object();
+    private final Object clientLock = new Object();
+    private boolean leaveConfirmed = false;
 
     public Peer(String username) {
         this.username = username;
@@ -27,7 +31,7 @@ public class Peer implements Server.PacketListener {
         } catch (UnknownHostException e) {
             throw new RuntimeException("Tidak bisa menemukan IP lokal", e);
         }
-        
+
         // 1. Buat komponen Server dan daftarkan Peer ini sebagai pendengar
         this.server = new Server(chatPort);
         this.server.setPacketListener(this);
@@ -48,7 +52,7 @@ public class Peer implements Server.PacketListener {
 
     @Override
     public void onPacketReceived(String packet, DataOutputStream replyStream) {
-        String[] parts = packet.split("\\|", 2);
+        String[] parts = packet.split("\\|", 4);
         String type = parts[0];
         String data = parts.length > 1 ? parts[1] : "";
 
@@ -61,10 +65,29 @@ public class Peer implements Server.PacketListener {
                 System.out.println("\n[SISTEM] Merespon permintaan JOIN dari " + data);
                 return;
             } else if ("READY".equals(type)) {
-                System.out.println("\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
+                System.out.println(
+                        "\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
                 chatClient.closeConnection();
                 chatClient = new Client(lastJoinRequesterHost, chatPort);
                 chatClient.initConnection();
+                return;
+            } else if ("LEAVE".equals(type)) {
+                if (data.equals(chatClient.destinationHost))
+                    leaveAck(parts[2], Integer.parseInt(parts[3]));
+                else {
+                    synchronized (clientLock) {
+                        chatClient.forwardPacket(packet);
+                    }
+                }
+                return;
+            } else if ("ACK_LEAVE".equals(type)) {
+                if (!data.equals(hostIp))
+                    return;
+                System.out.println("[SISTEM] Menerima ACK_LEAVE dari predecessor");
+                synchronized (leaveLock) {
+                    leaveConfirmed = true;
+                    leaveLock.notifyAll();
+                }
                 return;
             }
         } catch (IOException e) {
@@ -79,13 +102,61 @@ public class Peer implements Server.PacketListener {
                 handleRoomAnnouncement(data);
             }
             // Teruskan paket gossip
+            synchronized (clientLock) {
+                chatClient.forwardPacket(packet);
+            }
+        }
+    }
+
+    public void leave() {
+        // jika hanya ada 1 peer di network, langsung matikan
+        if (chatClient.destinationHost.equals(hostIp)) {
+            System.out.println("[SISTEM] Mematikan Network");
+            chatClient.closeConnection();
+            System.exit(0);
+        }
+        String packet = "LEAVE|" + hostIp + "|" + chatClient.destinationHost + "|" + chatClient.destinationPort;
+
+        synchronized(clientLock){
             chatClient.forwardPacket(packet);
+        }
+        System.out.println("[SISTEM] Mengirim notifikasi LEAVE");
+
+        // Tunggu sampai menerima ack dari predecessor di network
+        synchronized (leaveLock) {
+            while (!leaveConfirmed) {
+                try {
+                    leaveLock.wait(5_000); // 5s timeout to avoid infinite block
+                    if (!leaveConfirmed) {
+                        System.err.println("[SISTEM] No LEAVE_ACK received—retrying LEAVE");
+                        chatClient.forwardPacket(packet);
+                    }
+                } catch (InterruptedException e) {
+                    /* ignore */ }
+            }
+        }
+
+        System.out.println("[SISTEM] Predecessor rewired; safe to exit.");
+        chatClient.closeConnection();
+        System.exit(0);
+    }
+
+    public void leaveAck(String newSuccessorIP, int newSuccessorPort) {
+        synchronized (clientLock) {
+            String ackPacket = "ACK_LEAVE|" + chatClient.destinationHost;
+            chatClient.forwardPacket(ackPacket);
+            System.out.printf("[SISTEM] %s leaving; recconect to %s : %d\n", chatClient.destinationHost, newSuccessorIP,
+                    newSuccessorPort);
+            chatClient.closeConnection();
+            chatClient = new Client(newSuccessorIP, newSuccessorPort);
+            chatClient.initConnection();
         }
     }
 
     private void handleChatMessage(String data) {
         String[] parts = data.split("\\|", 3); // sender|roomName|content
-        if (parts.length < 3) return;
+        if (parts.length < 3)
+            return;
         String sender = parts[0];
         String roomName = parts[1];
         String content = parts[2];
@@ -93,10 +164,11 @@ public class Peer implements Server.PacketListener {
             System.out.printf("\n[%s] %s: %s\n> ", roomName, sender, content);
         }
     }
-    
+
     private void handleRoomAnnouncement(String data) {
         String[] parts = data.split("\\|", 2); // roomName|owner
-        if (parts.length < 2) return;
+        if (parts.length < 2)
+            return;
         String roomName = parts[0];
         String owner = parts[1];
         knownRooms.computeIfAbsent(roomName, k -> new ChatRoom(k, owner));
@@ -106,16 +178,20 @@ public class Peer implements Server.PacketListener {
         String msgId = UUID.randomUUID().toString();
         String packet = String.format("CHAT|%s|%s|%s|%s", username, roomName, message, msgId);
         seenPacketIDs.add(packet);
-        chatClient.forwardPacket(packet);
+        synchronized (clientLock) {
+            chatClient.forwardPacket(packet);
+        }
     }
-    
+
     public void createRoom(String roomName) {
         if (!knownRooms.containsKey(roomName)) {
             ChatRoom newRoom = new ChatRoom(roomName, this.username);
             knownRooms.put(roomName, newRoom);
             String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.username;
             seenPacketIDs.add(packet);
-            chatClient.forwardPacket(packet);
+            synchronized (clientLock) {
+                chatClient.forwardPacket(packet);
+            }
         }
     }
 
@@ -130,19 +206,21 @@ public class Peer implements Server.PacketListener {
             String command = parts[0].toUpperCase();
             switch (command) {
                 case "CREATE":
-                    if(parts.length > 1) createRoom(parts[1]);
+                    if (parts.length > 1)
+                        createRoom(parts[1]);
                     break;
                 case "SEND":
-                    if(parts.length > 2) sendMessage(parts[1], parts[2]);
+                    if (parts.length > 2)
+                        sendMessage(parts[1], parts[2]);
                     break;
                 case "JOIN":
-                    if(parts.length > 1) {
-                         this.activeChatRoom = knownRooms.get(parts[1]);
-                         if(this.activeChatRoom != null) {
-                             System.out.println("Pindah ke room: " + parts[1]);
-                         } else {
-                             System.out.println("Room " + parts[1] + " tidak ditemukan.");
-                         }
+                    if (parts.length > 1) {
+                        this.activeChatRoom = knownRooms.get(parts[1]);
+                        if (this.activeChatRoom != null) {
+                            System.out.println("Pindah ke room: " + parts[1]);
+                        } else {
+                            System.out.println("Room " + parts[1] + " tidak ditemukan.");
+                        }
                     }
                     break;
                 case "EXIT":
@@ -153,20 +231,21 @@ public class Peer implements Server.PacketListener {
         }
         sc.close();
     }
-    
+
     // Metode discoverAndJoin Anda yang canggih bisa diletakkan di sini.
     // Pastikan untuk menyesuaikan cara ia menggunakan Client dan Server.
-    private void discoverAndJoin(){
+    private void discoverAndJoin() {
         System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
-        for(int i = 1; i <= 254; i++){
-            String ip = subnet+i;
-            if(ip.equals(hostIp)) continue;
-            try(Socket s = new Socket()){
+        for (int i = 1; i <= 254; i++) {
+            String ip = subnet + i;
+            if (ip.equals(hostIp))
+                continue;
+            try (Socket s = new Socket()) {
                 s.connect(new InetSocketAddress(ip, chatPort), 200);
                 DataInputStream in = new DataInputStream(s.getInputStream());
                 DataOutputStream out = new DataOutputStream(s.getOutputStream());
 
-                out.writeUTF("JOIN|"+hostIp);
+                out.writeUTF("JOIN|" + hostIp);
 
                 String response = in.readUTF();
                 String successorIp = response.split("\\|")[1];
@@ -174,11 +253,12 @@ public class Peer implements Server.PacketListener {
                 this.chatClient = new Client(successorIp, chatPort);
                 this.chatClient.initConnection();
 
-                try(Socket ack = new Socket(ip, chatPort)){
+                try (Socket ack = new Socket(ip, chatPort)) {
                     new DataOutputStream(ack.getOutputStream()).writeUTF("READY");
                 }
                 return;
-            } catch (Exception e) {}
+            } catch (Exception e) {
+            }
         }
         // Jika sampai sini, berarti Peer ini adalah yang pertama di network
     }

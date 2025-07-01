@@ -4,10 +4,9 @@
  */
 package Jarkom.chatapp.forms;
 
+import Jarkom.chatapp.network.Peer;
 import Jarkom.chatapp.models.Message;
 import Jarkom.chatapp.models.Room;
-import Jarkom.chatapp.network.Peer;
-
 import javax.swing.*;
 import javax.swing.border.*;
 import java.awt.*;
@@ -26,8 +25,9 @@ import java.util.Set;
 import java.util.HashSet;
 
 public class ChatRoomForm extends JFrame {
-    private Peer currentUser;
+    private String currentUser;
     private Room currentRoom;
+    private Peer peer;
     //private DefaultListModel<String> userListModel;
     
     private JTextArea messageArea;
@@ -50,10 +50,12 @@ public class ChatRoomForm extends JFrame {
     private final ImageIcon userIcon = loadAndScaleIcon("/Images/user_icon.jpg", 16, 16);
     private final ImageIcon kickIcon = loadAndScaleIcon("/Images/kick_icon.png", 16, 16);
 
-    public ChatRoomForm(Peer peer, Room room) {
-        this.currentUser = peer;
+    public ChatRoomForm(String username, Room room) {
+        this.currentUser = username;
         this.currentRoom = room;
-        this.currentRoom.addUser(peer.hostIp, peer.username); // Add user to room members
+        this.currentRoom.addMember(username); // Add user to room members
+        this.currentRoom.setOnline(username, true); // Set user as online
+        this.peer = peer;
         this.messageListModel = new DefaultListModel<>();
 
         initComponents();
@@ -66,6 +68,17 @@ public class ChatRoomForm extends JFrame {
         setupChatPanel();
         setupInputPanel();
         setupEventHandlers();
+    }
+    
+    private void displayReceivedMessage(String sender, String message) {
+        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+        String formattedMessage = String.format("[%s] [%s]\n%s", 
+            sender, time, message);
+
+        SwingUtilities.invokeLater(() -> {
+            messageListModel.addElement(formattedMessage);
+            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+        });
     }
     
     private ImageIcon loadAndScaleIcon(String path, int width, int height) {
@@ -370,88 +383,95 @@ public class ChatRoomForm extends JFrame {
         return lower.endsWith(".jpg") || lower.endsWith(".jpeg") 
             || lower.endsWith(".png") || lower.endsWith(".gif");
     }
-/*
-    private void sendFileToServer(String fileName, byte[] fileData) {
-        try (Socket socket = new Socket("localhost", 1234);
-             OutputStream out = socket.getOutputStream()) {
+    /*
+    private void handleSendMessage() {
+        String text = messageArea.getText().trim();
+        if (!text.isEmpty()) {
+            try {
+                // 1. Kirim pesan melalui jaringan P2P
+                peer.sendMessage(currentRoom.getName(), text);
 
-            // Create file info string
-            String fileInfo = currentRoom.getName() + "|" + 
-                             currentUser + "|" + 
-                             fileName + "|" + 
-                             fileData.length;
+                // 2. Tampilkan pesan di GUI pengirim (local echo)
+                String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+                String formattedMessage = String.format("[%s] [%s]\n%s", 
+                    currentUser, time, text);
 
-            // Send data
-            out.write(fileInfo.getBytes());
-            out.write(fileData);
-            out.flush();
+                SwingUtilities.invokeLater(() -> {
+                    messageListModel.addElement(formattedMessage);
+                    messageArea.setText("");
+                    messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+                });
 
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                "Failed to send file to server",
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                    "Failed to send message: " + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 */
     
     private void handleSendMessage() {
         String text = messageArea.getText().trim();
-        if (!text.isEmpty()) {
+        if (text.isEmpty()) {
+            return;
+        }
+
+        try {
+            // Validasi koneksi peer
+            if (!isPeerConnected()) {
+                showConnectionError();
+                return;
+            }
+
+            // Kirim pesan
+            peer.sendMessage(currentRoom.getName(), text);
+
+            // Tampilkan pesan lokal
+            displayLocalMessage(text);
+
+        } catch (Exception ex) {
+            handleSendError(ex);
+        }
+    }
+
+    private boolean isPeerConnected() {
+        return peer != null && peer.isConnected();
+    }
+
+    private void showConnectionError() {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(this,
+                "Not connected to network. Message not sent.",
+                "Connection Error",
+                JOptionPane.WARNING_MESSAGE);
+        });
+    }
+
+    private void handleSendError(Exception ex) {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(this,
+                "Failed to send message: " + ex.getMessage(),
+                "Error",
+                JOptionPane.ERROR_MESSAGE);
+        });
+
+        // Log error untuk debugging
+        System.err.println("Error sending message: " + ex.getMessage());
+        ex.printStackTrace();
+    }
+
+    private void displayLocalMessage(String text) {
+        SwingUtilities.invokeLater(() -> {
             String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
             String formattedMessage = String.format("[%s] [%s]\n%s", 
                 currentUser, time, text);
+
             messageListModel.addElement(formattedMessage);
             messageArea.setText("");
             messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
-        }
+        });
     }
-    /*
-    private ImageIcon loadIcon(String path) {
-        try {
-            // Cara 1: Menggunakan getResourceAsStream (lebih robust)
-            InputStream is = getClass().getResourceAsStream(path);
-            if (is != null) {
-                byte[] bytes = is.readAllBytes();
-                return new ImageIcon(bytes);
-            }
-            
-            // Cara 2: Fallback dengan getResource (untuk debugging)
-            URL url = getClass().getResource(path);
-            if (url != null) {
-                System.out.println("Found icon at: " + url.toString());
-                return new ImageIcon(url);
-            }
-            
-            System.err.println("Icon not found: " + path);
-        } catch (Exception e) {
-            System.err.println("Error loading icon " + path + ": " + e.getMessage());
-        }
-        return new ImageIcon(); // Return ikon kosong jika gagal
-    }
-*/
-    /*
-    private JPanel createInfoPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        
-        // Room info dengan ikon
-        JLabel roomLabel = new JLabel("Room: " + currentRoom.getName(), roomIcon, SwingConstants.LEFT);
-        
-        // Owner info dengan ikon
-        JLabel ownerLabel = new JLabel("Owner: " + currentRoom.getOwner(), ownerIcon, SwingConstants.LEFT);
-        
-        // Leave button dengan ikon
-        JButton leaveButton = new JButton("Leave", leaveIcon);
-        leaveButton.setVerticalTextPosition(SwingConstants.BOTTOM);
-        leaveButton.setHorizontalTextPosition(SwingConstants.CENTER);
-        
-        panel.add(roomLabel);
-        panel.add(ownerLabel);
-        panel.add(leaveButton);
-        
-        return panel;
-    }
-*/
 
     private void initComponents() {
         setTitle("Chat App - " + currentRoom.getName() + " (" + currentUser + ")");
@@ -605,24 +625,6 @@ public class ChatRoomForm extends JFrame {
             addSystemMessage(username + " is now offline");
         }
     }
-    /*
-    private JPanel createInputPanel() {
-        JPanel panel = new JPanel(new BorderLayout(5, 5));
-        
-        // Attachment button dengan ikon
-        JButton attachButton = new JButton(attachIcon);
-        attachButton.setToolTipText("Attach file");
-        attachButton.setPreferredSize(new Dimension(30, 30));
-        
-        // Message area
-        messageArea = new JTextArea(3, 30);
-        
-        panel.add(attachButton, BorderLayout.WEST);
-        panel.add(new JScrollPane(messageArea), BorderLayout.CENTER);
-        
-        return panel;
-    }
-*/
 
     private void handleCloseRoom() {
         if (!currentUser.equals(currentRoom.getOwner())) {

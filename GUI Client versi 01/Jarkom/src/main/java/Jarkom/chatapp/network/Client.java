@@ -51,4 +51,8 @@ public class Client {
             // Abaikan error saat menutup
         }
     }
+    
+    public boolean isConnectionActive() {
+        return socket != null && !socket.isClosed() && out != null;
+    }
 }

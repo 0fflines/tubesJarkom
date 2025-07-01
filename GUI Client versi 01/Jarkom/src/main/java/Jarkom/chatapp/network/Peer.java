@@ -1,15 +1,13 @@
 package Jarkom.chatapp.network;
 
-import Jarkom.chatapp.models.Room;
 import java.io.*;
 import java.net.*;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.*;
 
 public class Peer implements Server.PacketListener {
-    public final String username;
-    public final String hostIp;
+    private final String username;
+    private final String hostIp;
     private final String subnet;
     private static final int chatPort = 5000;
 
@@ -17,8 +15,8 @@ public class Peer implements Server.PacketListener {
     private Client chatClient;
 
     private final HashSet<String> seenPacketIDs = new HashSet<>();
-    public final Map<String, Room> knownRooms = new ConcurrentHashMap<>();
-    private Room activeChatRoom;
+    private final Map<String, ChatRoom> knownRooms = new ConcurrentHashMap<>();
+    private ChatRoom activeChatRoom;
     private String lastJoinRequesterHost;
 
     private final Object leaveLock = new Object();
@@ -47,11 +45,12 @@ public class Peer implements Server.PacketListener {
         this.chatClient.initConnection();
 
         // 3. Masuk ke room default
-        this.activeChatRoom = new Room("general", "System", null);
+        this.activeChatRoom = new ChatRoom("general", "System");
         this.knownRooms.put("general", this.activeChatRoom);
 
         // 4. Jalankan discovery dan input user
         new Thread(this::discoverAndJoin).start();
+        startChatIO();
     }
 
     @Override
@@ -118,8 +117,6 @@ public class Peer implements Server.PacketListener {
             } else if ("EXIT_ROOM".equals(type)) {
                 // roomname, ip, username
                 handleExitRoom(data, parts[2], parts[3]);
-            } else if ("BAN_ANNOUNCE".equals(type)) {
-                handleBanAnnounce(parts[1], parts[2]);
             }
             // Teruskan paket gossip
             synchronized (clientLock) {
@@ -174,7 +171,7 @@ public class Peer implements Server.PacketListener {
     }
 
     public void handleRoomRequest(String roomName, String ip, String username) {
-        Room chatRoom = knownRooms.get(roomName);
+        ChatRoom chatRoom = knownRooms.get(roomName);
         if (chatRoom.getOwner().equals(hostIp)) {
             if (chatRoom.isBanned(ip) == true) {
                 try (Socket deny = new Socket(ip, chatPort)) {
@@ -199,14 +196,14 @@ public class Peer implements Server.PacketListener {
     }
 
     public void handleJoinRoom(String roomname, String ip, String username) {
-        Room chatRoom = knownRooms.get(roomname);
+        ChatRoom chatRoom = knownRooms.get(roomname);
         // masukkan Ip Host dan usernamenya kedalam list user chatroom
         chatRoom.addUser(ip, username);
         System.out.printf("[SISTEM] %s(%s) telah join room %s", username, ip, roomname);
     }
 
     public void handleExitRoom(String roomName, String ip, String username) {
-        Room chatRoom = knownRooms.get(roomName);
+        ChatRoom chatRoom = knownRooms.get(roomName);
         chatRoom.removeUser(ip);
         System.out.printf("[SISTEM] %s(%s) telah keluar room %s", username, ip, roomName);
     }
@@ -224,25 +221,35 @@ public class Peer implements Server.PacketListener {
     }
 
     private void handleRoomAnnouncement(String data) {
-        String[] parts = data.split("\\|", 3); // roomName|owner
-        if (parts.length < 3)
+        String[] parts = data.split("\\|", 2); // roomName|owner
+        if (parts.length < 2)
             return;
         String roomName = parts[0];
         String owner = parts[1];
-        String date = parts[2];
-        knownRooms.computeIfAbsent(roomName, k -> new Room(k, owner, date));
+        knownRooms.computeIfAbsent(roomName, k -> new ChatRoom(k, owner));
     }
 
-    private void handleBanAnnounce(String roomName, String bannedIp) {
-        Room chatRoom = knownRooms.get(roomName);
-        if (chatRoom != null) {
-            chatRoom.banUser(bannedIp);
-        } else {
-            System.out.println("Room tidak ditemukan");
+    public void sendMessage(String roomName, String message) {
+        String msgId = UUID.randomUUID().toString();
+        String packet = String.format("CHAT|%s|%s|%s|%s", username, roomName, message, msgId);
+        seenPacketIDs.add(packet);
+        synchronized (clientLock) {
+            chatClient.forwardPacket(packet);
         }
     }
 
-    //DEPECRATED, cuman guna kalo pake Scanner(System.in)
+    public void createRoom(String roomName) {
+        if (!knownRooms.containsKey(roomName)) {
+            ChatRoom newRoom = new ChatRoom(roomName, this.hostIp);
+            knownRooms.put(roomName, newRoom);
+            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp;
+            seenPacketIDs.add(packet);
+            synchronized (clientLock) {
+                chatClient.forwardPacket(packet);
+            }
+        }
+    }
+
     private void startChatIO() {
         Scanner sc = new Scanner(System.in);
         System.out.println("\n--- P2P Chat Console ---");
@@ -262,11 +269,9 @@ public class Peer implements Server.PacketListener {
                     if (parts.length > 2)
                         sendMessage(parts[1], parts[2]);
                     break;
-
-                // udh dipindah ke joinRoom()
                 case "JOIN":
                     if (parts.length > 1) {
-                        Room chatRoom = knownRooms.get(parts[1]);
+                        ChatRoom chatRoom = knownRooms.get(parts[1]);
                         if (chatRoom != null) {
                             System.out.println("[SISTEM]Meminta permintaan owner room.....");
                             String packet = "ROOM_REQUEST|" + parts[1] + "|" + hostIp + "|" + username;
@@ -282,7 +287,7 @@ public class Peer implements Server.PacketListener {
                                 }
                             }
 
-                            if (roomRequestAccepted) {
+                            if(roomRequestAccepted){
                                 this.activeChatRoom = chatRoom;
                                 System.out.println("Pindah ke room: " + parts[1]);
                             } else {
@@ -293,11 +298,9 @@ public class Peer implements Server.PacketListener {
                         }
                     }
                     break;
-
-                // udah dipindah ke banUser
                 case "BAN":
                     if (parts.length > 2) {
-                        Room chatRoom = knownRooms.get(parts[1]);
+                        ChatRoom chatRoom = knownRooms.get(parts[1]);
                         String bannedIp = parts[2];
                         if (chatRoom.getOwner().equals(hostIp)) {
                             String bannedUsername = chatRoom.banUser(bannedIp);
@@ -315,8 +318,6 @@ public class Peer implements Server.PacketListener {
                         }
                     }
                     break;
-
-                // udah dipindah ke exitRoom
                 case "EXIT":
                     if (parts.length > 1) {
                         this.activeChatRoom = null;
@@ -366,92 +367,8 @@ public class Peer implements Server.PacketListener {
         }
         // Jika sampai sini, berarti Peer ini adalah yang pertama di network
     }
-
-    public List<Room> getRoomList() {
-        return new ArrayList<Room>(knownRooms.values());
-    }
-
-    public boolean joinRoom(String roomName) {
-        Room chatRoom = knownRooms.get(roomName);
-        if (chatRoom != null) {
-            System.out.println("[SISTEM]Meminta permintaan owner room.....");
-            String packet = "ROOM_REQUEST|" + roomName + "|" + hostIp + "|" + username;
-            synchronized (clientLock) {
-                chatClient.forwardPacket(packet);
-            }
-            boolean waitingResponse = true;
-            while (waitingResponse) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-
-            if (roomRequestAccepted) {
-                this.activeChatRoom = chatRoom;
-                System.out.println("Pindah ke room: " + roomName);
-                return true;
-            } else {
-                System.out.println("Permintaan pindah ke room ditolak");
-                return false;
-            }
-        } else {
-            System.out.println("Room " + roomName + " tidak ditemukan.");
-            return false;
-        }
-    }
-
-    public void exitRoom(String roomName) {
-        this.activeChatRoom = null;
-        String packet = "EXIT_ROOM|" + roomName + "|" + hostIp + "|" + username;
-        roomRequestAccepted = false;
-        waitingRoomResponse = true;
-        seenPacketIDs.add(packet);
-        synchronized (clientLock) {
-            handleExitRoom(roomName, hostIp, username);
-        }
-    }
-
-    public void banUser(String roomName, String bannedIp) {
-        Room chatRoom = knownRooms.get(roomName);
-        if (chatRoom.getOwner().equals(hostIp)) {
-            String bannedUsername = chatRoom.banUser(bannedIp);
-            if (bannedUsername == null) {
-                System.out.printf("Tidak ada user dalam %s dengan ip tersebut\n", roomName);
-                return;
-            }
-            System.out.printf("Banning %s:%s dari %s", bannedUsername, bannedIp, roomName);
-            String packet = "BAN_ANNOUNCE|" + roomName + "|" + bannedIp;
-            seenPacketIDs.add(packet);
-            synchronized (clientLock) {
-                chatClient.forwardPacket(packet);
-            }
-        } else {
-            System.out.println("User tidak punya hak pemilik");
-        }
-    }
-
-    public void sendMessage(String roomName, String message) {
-        String msgId = UUID.randomUUID().toString();
-        String packet = String.format("CHAT|%s|%s|%s|%s", username, roomName, message, msgId);
-        seenPacketIDs.add(packet);
-        synchronized (clientLock) {
-            chatClient.forwardPacket(packet);
-        }
-    }
-
-    public boolean createRoom(String roomName) {
-        if (!knownRooms.containsKey(roomName)) {
-            Room newRoom = new Room(roomName, this.hostIp, LocalDate.now().toString());
-            knownRooms.put(roomName, newRoom);
-            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString();
-            seenPacketIDs.add(packet);
-            synchronized (clientLock) {
-                chatClient.forwardPacket(packet);
-            }
-            return true;
-        }
-        return false;
+    
+    public boolean isConnected() {
+        return chatClient != null && chatClient.isConnectionActive();
     }
 }

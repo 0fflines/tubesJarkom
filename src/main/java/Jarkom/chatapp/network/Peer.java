@@ -65,6 +65,7 @@ public class Peer implements Server.PacketListener {
         String[] parts = packet.split("\\|", 4);
         String type = parts[0];
         String data = parts.length > 1 ? parts[1] : "";
+        System.out.println("RECEIVEED "+type);
 
         // Handshake diproses secara langsung
         try {
@@ -117,7 +118,11 @@ public class Peer implements Server.PacketListener {
             if ("CHAT".equals(type)) {
                 handleChatMessage(data);
             } else if ("ROOM_ANNOUNCE".equals(type)) {
+                System.out.println("ACCEPTED ROOM ANNOUNCE");
                 handleRoomAnnouncement(data);
+                for(Room room : this.getRoomList()){
+                    System.out.println(room.getName());
+                }
             } else if ("JOIN_ROOM".equals(type)) {
                 // roomname, ip, username
                 handleJoinRoom(data, parts[2], parts[3]);
@@ -236,7 +241,9 @@ public class Peer implements Server.PacketListener {
         String roomName = parts[0];
         String owner = parts[1];
         String date = parts[2];
-        knownRooms.computeIfAbsent(roomName, k -> new Room(k, owner, date));
+        System.out.println("RECEIVED ROOM ANOUNCE "+roomName);
+        // knownRooms.computeIfAbsent(roomName, k -> new Room(k, owner, date));
+        knownRooms.put(roomName, new Room(roomName, owner, date));
     }
 
     private void handleBanAnnounce(String roomName, String bannedIp) {

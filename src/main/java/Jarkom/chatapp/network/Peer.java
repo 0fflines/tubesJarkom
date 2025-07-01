@@ -43,10 +43,12 @@ public class Peer implements Server.PacketListener {
         this.server = new Server(chatPort, this);
         this.server.setPacketListener(this);
         this.server.start();
+        System.out.println("SERVER STARTED");
 
         // 2. Inisialisasi awal client (terhubung ke diri sendiri)
         this.chatClient = new Client(hostIp, chatPort);
         this.chatClient.initConnection();
+        System.out.println("CLIENT SOCKET STARTED");
 
         // 3. Masuk ke room default
         this.activeChatRoom = new Room("general", "System", null);
@@ -54,6 +56,7 @@ public class Peer implements Server.PacketListener {
 
         // 4. Jalankan discovery dan input user
         new Thread(this::discoverAndJoin).start();
+        System.out.println("DISCOVER AND JOIN STARTED");
     }
 
     @Override
@@ -352,29 +355,24 @@ public class Peer implements Server.PacketListener {
             String ip = subnet + i;
             if (ip.equals(hostIp))
                 continue;
-            try (Socket s = new Socket(ip, chatPort)) {
-                DataInputStream in = new DataInputStream(s.getInputStream());
-                DataOutputStream out = new DataOutputStream(s.getOutputStream());
-
-                // Phase 1: ask to join
-                out.writeUTF("JOIN_NETWORK|" + hostIp);
-
-                // Phase 2: read successor response
-                String response = in.readUTF(); // e.g. "SUCCESSOR|10.0.0.5"
-                String successorIp = response.split("\\|")[1];
-
-                // Phase 3: immediately tell server "READY" on the same socket
-                out.writeUTF("READY");
-
-                // Now that the server knows to splice you in,
-                // you can switch your chatClient to the new successor:
-                this.chatClient = new Client(successorIp, chatPort);
-                this.chatClient.initConnection();
-
-                return;
-            } catch (IOException e) {
-                // handle failure...
+            // Phase 1: JOIN
+            try (Socket s1 = new Socket(ip, chatPort)) {
+                DataInputStream in1 = new DataInputStream(s1.getInputStream());
+                DataOutputStream out1 = new DataOutputStream(s1.getOutputStream());
+                out1.writeUTF("JOIN_NETWORK|" + hostIp);
+                String resp = in1.readUTF(); // SUCCESSOR|...
+            } catch (Exception e) {
+                e.printStackTrace();
             }
+            // Phase 2: READY
+            try (Socket s2 = new Socket(ip, chatPort)) {
+                new DataOutputStream(s2.getOutputStream()).writeUTF("READY");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            // Now spin up chatClient to successor
+            this.chatClient = new Client(ip, chatPort);
+            this.chatClient.initConnection();
         }
         // Jika sampai sini, berarti Peer ini adalah yang pertama di network
     }

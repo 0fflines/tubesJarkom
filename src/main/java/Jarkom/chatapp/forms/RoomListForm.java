@@ -38,9 +38,9 @@ public class RoomListForm extends JFrame {
         loadRooms();
 
         // Periksa apakah ada room yang sudah di-close
-        if (rooms.stream().noneMatch(r -> r.getName().equalsIgnoreCase(peer.username + "'s Room"))) {
+        if (rooms.stream().noneMatch(r -> r.getName().equalsIgnoreCase(currentUser.username + "'s Room"))) {
             // Jika room sudah di-close, hapus dari list
-            removeRoom(peer.username + "'s Room");
+            removeRoom(currentUser.username + "'s Room");
         }
 
         //refresh listRoom setiap 3 detik

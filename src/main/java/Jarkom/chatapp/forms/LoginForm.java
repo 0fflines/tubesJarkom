@@ -9,6 +9,9 @@ package Jarkom.chatapp.forms;
  * @author azrie
  */
 import javax.swing.*;
+
+import Jarkom.chatapp.network.Peer;
+
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -77,7 +80,8 @@ public class LoginForm extends JFrame {
                 }
 
                 dispose();
-                new RoomListForm(username).setVisible(true);
+                Peer peer = new Peer(username);
+                new RoomListForm(peer).setVisible(true);
             }
         });
 

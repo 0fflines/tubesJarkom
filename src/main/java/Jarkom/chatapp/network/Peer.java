@@ -62,7 +62,7 @@ public class Peer implements Server.PacketListener {
 
     @Override
     public void onPacketReceived(String packet, DataOutputStream replyStream) {
-        String[] parts = packet.split("\\|", 4);
+        String[] parts = packet.split("\\|", 5);
         String type = parts[0];
         String data = parts.length > 1 ? parts[1] : "";
         System.out.println("RECEIVEED "+type);
@@ -119,7 +119,7 @@ public class Peer implements Server.PacketListener {
                 handleChatMessage(data);
             } else if ("ROOM_ANNOUNCE".equals(type)) {
                 System.out.println("ACCEPTED ROOM ANNOUNCE");
-                handleRoomAnnouncement(data);
+                handleRoomAnnouncement(data, parts[1], parts[2]);
                 for(Room room : this.getRoomList()){
                     System.out.println(room.getName());
                 }
@@ -234,13 +234,7 @@ public class Peer implements Server.PacketListener {
         }
     }
 
-    private void handleRoomAnnouncement(String data) {
-        String[] parts = data.split("\\|", 3); // roomName|owner
-        if (parts.length < 3)
-            return;
-        String roomName = parts[0];
-        String owner = parts[1];
-        String date = parts[2];
+    private void handleRoomAnnouncement(String roomName, String owner, String date) {
         System.out.println("RECEIVED ROOM ANOUNCE "+roomName);
         // knownRooms.computeIfAbsent(roomName, k -> new Room(k, owner, date));
         knownRooms.put(roomName, new Room(roomName, owner, date));
@@ -493,7 +487,7 @@ public class Peer implements Server.PacketListener {
         if (!knownRooms.containsKey(roomName)) {
             Room newRoom = new Room(roomName, this.hostIp, LocalDate.now().toString());
             knownRooms.put(roomName, newRoom);
-            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString();
+            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString() + "|"+ username;
             seenPacketIDs.add(packet);
             synchronized (clientLock) {
                 System.out.println("SENDING PACKET");

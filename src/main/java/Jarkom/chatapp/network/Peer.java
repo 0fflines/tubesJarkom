@@ -29,6 +29,7 @@ public class Peer implements Server.PacketListener {
     private boolean roomRequestAccepted = false;
 
     private final CountDownLatch serverReadyLatch = new CountDownLatch(1);
+    private volatile boolean isJoining = false;
 
     public Peer(String username) {
         this.username = username;
@@ -73,7 +74,7 @@ public class Peer implements Server.PacketListener {
                 replyStream.writeUTF("SUCCESSOR|" + successorHost);
                 System.out.println("\n[SISTEM] Merespon permintaan JOIN dari " + data);
                 return;
-            } else if ("READY".equals(type)) {
+            } else if ("READY".equals(type) && !isJoining) {
                 System.out.println(
                         "\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
                 chatClient.closeConnection();
@@ -345,36 +346,66 @@ public class Peer implements Server.PacketListener {
     // Pastikan untuk menyesuaikan cara ia menggunakan Client dan Server.
     private void discoverAndJoin() {
         try {
-            // Wait until this peer's server is fully up.
+            // Wait until our ServerSocket is bound
             serverReadyLatch.await();
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
         }
+
+        isJoining = true;
         System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
         for (int i = 1; i <= 254; i++) {
             String ip = subnet + i;
             if (ip.equals(hostIp))
                 continue;
-            // Phase 1: JOIN
-            try (Socket s1 = new Socket(ip, chatPort)) {
-                DataInputStream in1 = new DataInputStream(s1.getInputStream());
+
+            String successorIp = null;
+
+            // Phase 1: JOIN on socket s1
+            try (Socket s1 = new Socket()) {
+                s1.connect(new InetSocketAddress(ip, chatPort), 200);
                 DataOutputStream out1 = new DataOutputStream(s1.getOutputStream());
+                DataInputStream in1 = new DataInputStream(s1.getInputStream());
+
                 out1.writeUTF("JOIN_NETWORK|" + hostIp);
-                String resp = in1.readUTF(); // SUCCESSOR|...
-            } catch (Exception e) {
-                e.printStackTrace();
+                String resp = in1.readUTF(); // e.g. "SUCCESSOR|10.0.0.5"
+                successorIp = resp.split("\\|", 2)[1];
+
+            } catch (IOException joinEx) {
+                // no peer at this ip:port — try the next one
+                continue;
             }
-            // Phase 2: READY
-            try (Socket s2 = new Socket(ip, chatPort)) {
-                new DataOutputStream(s2.getOutputStream()).writeUTF("READY");
-            } catch (Exception e) {
-                e.printStackTrace();
+
+            // Phase 2: READY on socket s2
+            try (Socket s2 = new Socket()) {
+                s2.connect(new InetSocketAddress(successorIp, chatPort), 200);
+                DataOutputStream out2 = new DataOutputStream(s2.getOutputStream());
+                out2.writeUTF("READY");
+            } catch (IOException readyEx) {
+                // This should rarely happen if JOIN succeeded, but if it does:
+                System.err.println("[WARN] READY failed to " + ip);
+                continue;
             }
-            // Now spin up chatClient to successor
-            this.chatClient = new Client(ip, chatPort);
-            this.chatClient.initConnection();
+
+            // Phase 3: establish our outgoing chatClient to the successor
+            this.chatClient = new Client(successorIp, chatPort);
+            if (!this.chatClient.initConnection()) {
+                System.err.println("[ERROR] Could not connect to successor at " + successorIp);
+            } else {
+                System.out.println("[SISTEM] Bergabung dengan jaringan via " + ip +
+                        "; downstream adalah " + successorIp);
+                isJoining = false;
+                break; // success! stop scanning
+            }
         }
-        // Jika sampai sini, berarti Peer ini adalah yang pertama di network
+
+        isJoining = false;
+
+        // If we fell out of the loop without connecting, we're the first peer
+        if (this.chatClient == null || !this.chatClient.isConnectionActive()) {
+            System.out.println("[SISTEM] Tidak menemukan peer lain; memulai jaringan baru.");
+            // chatClient already points to self from constructor
+        }
     }
 
     public List<Room> getRoomList() {

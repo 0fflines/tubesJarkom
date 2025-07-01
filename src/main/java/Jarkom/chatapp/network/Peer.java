@@ -345,7 +345,17 @@ public class Peer implements Server.PacketListener {
             if (ip.equals(hostIp))
                 continue;
             try (Socket s = new Socket()) {
-                s.connect(new InetSocketAddress(ip, chatPort), 200);
+                boolean connected = false;
+                for (int attempt = 0; attempt < 5 && !connected; attempt++) {
+                    try {
+                        s.connect(new InetSocketAddress(ip, chatPort), 200);
+                        connected = true;
+                    } catch (IOException e) {
+                        Thread.sleep(100); // wait and retry
+                    }
+                }
+                if (!connected)
+                    continue; // give up on this peer
                 DataInputStream in = new DataInputStream(s.getInputStream());
                 DataOutputStream out = new DataOutputStream(s.getOutputStream());
 
@@ -448,6 +458,7 @@ public class Peer implements Server.PacketListener {
             String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString();
             seenPacketIDs.add(packet);
             synchronized (clientLock) {
+                System.out.println("SENDING PACKET");
                 chatClient.forwardPacket(packet);
             }
             return true;

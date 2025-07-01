@@ -22,6 +22,7 @@ public class Client {
             System.out.println("[Client] Terhubung ke peer: " + destinationHost + ":" + destinationPort);
             return true;
         } catch (IOException e) {
+            e.printStackTrace();
             System.err.println("[Client] Gagal terhubung ke peer: " + destinationHost + ":" + destinationPort);
             return false;
         }

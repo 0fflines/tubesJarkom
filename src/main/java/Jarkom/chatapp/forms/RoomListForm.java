@@ -137,6 +137,7 @@ public class RoomListForm extends JFrame {
 
     public void addNewRoom(String roomName) {
         currentUser.createRoom(roomName);
+        System.out.println("asoduhsaohd");
         loadRooms();
     }
     

@@ -242,7 +242,7 @@ public class Peer implements Server.PacketListener {
         }
     }
 
-    //DEPECRATED, cuman guna kalo pake Scanner(System.in)
+    // DEPECRATED, cuman guna kalo pake Scanner(System.in)
     private void startChatIO() {
         Scanner sc = new Scanner(System.in);
         System.out.println("\n--- P2P Chat Console ---");
@@ -453,5 +453,9 @@ public class Peer implements Server.PacketListener {
             return true;
         }
         return false;
+    }
+
+    public boolean isConnected() {
+        return chatClient != null && chatClient.isConnectionActive();
     }
 }

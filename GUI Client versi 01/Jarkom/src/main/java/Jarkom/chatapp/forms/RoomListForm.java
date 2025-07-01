@@ -32,15 +32,15 @@ public class RoomListForm extends JFrame {
     private static List<Room> rooms = new ArrayList<>();
 
 
-    public RoomListForm(String username) {
-        this.currentUser = new Peer(username);
+    public RoomListForm(Peer peer) {
+        this.currentUser = peer;
         initComponents();
         loadRooms();
 
         // Periksa apakah ada room yang sudah di-close
-        if (rooms.stream().noneMatch(r -> r.getName().equalsIgnoreCase(username + "'s Room"))) {
+        if (rooms.stream().noneMatch(r -> r.getName().equalsIgnoreCase(peer.username + "'s Room"))) {
             // Jika room sudah di-close, hapus dari list
-            removeRoom(username + "'s Room");
+            removeRoom(peer.username + "'s Room");
         }
 
         //refresh listRoom setiap 3 detik

@@ -367,6 +367,7 @@ public class Peer implements Server.PacketListener {
         isJoining = true;
         System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
         for (int i = 1; i <= 254; i++) {
+            System.out.println(i);
             String ip = subnet + i;
             if (ip.equals(hostIp))
                 continue;
@@ -413,6 +414,7 @@ public class Peer implements Server.PacketListener {
             }
         }
 
+        System.out.println("a");
         isJoining = false;
 
         // If we fell out of the loop without connecting, we're the first peer

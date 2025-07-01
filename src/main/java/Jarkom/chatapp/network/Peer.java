@@ -28,6 +28,8 @@ public class Peer implements Server.PacketListener {
     private boolean waitingRoomResponse = true;
     private boolean roomRequestAccepted = false;
 
+    private final CountDownLatch serverReadyLatch = new CountDownLatch(1);
+
     public Peer(String username) {
         this.username = username;
         try {
@@ -38,7 +40,7 @@ public class Peer implements Server.PacketListener {
         }
 
         // 1. Buat komponen Server dan daftarkan Peer ini sebagai pendengar
-        this.server = new Server(chatPort);
+        this.server = new Server(chatPort, this);
         this.server.setPacketListener(this);
         this.server.start();
 
@@ -339,6 +341,12 @@ public class Peer implements Server.PacketListener {
     // Metode discoverAndJoin Anda yang canggih bisa diletakkan di sini.
     // Pastikan untuk menyesuaikan cara ia menggunakan Client dan Server.
     private void discoverAndJoin() {
+        try {
+            // Wait until this peer's server is fully up.
+            serverReadyLatch.await();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
         for (int i = 1; i <= 254; i++) {
             String ip = subnet + i;
@@ -468,5 +476,9 @@ public class Peer implements Server.PacketListener {
 
     public boolean isConnected() {
         return chatClient != null && chatClient.isConnectionActive();
+    }
+
+    public void signalServerReady() {
+        serverReadyLatch.countDown();
     }
 }

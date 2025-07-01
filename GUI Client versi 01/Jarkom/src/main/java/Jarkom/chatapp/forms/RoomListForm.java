@@ -4,6 +4,7 @@
  */
 package Jarkom.chatapp.forms;
 
+import Jarkom.chatapp.Peer;
 import Jarkom.chatapp.models.Room;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -16,8 +17,14 @@ import java.util.List;
  * @author azrie
  */
 
+//PERLU WINDOW BARU
+//1. Nunggu request join room
+//2. User telah diban
+//3. Sedang disconnect dari network waktu tutup network
+//4. Request join room gagal/user di ban jadi g bisa masuk
+
 public class RoomListForm extends JFrame {
-    private String currentUser;
+    private Peer currentUser;
     private JTable roomTable;
     private DefaultTableModel tableModel;
     private JButton joinButton, createButton, refreshButton;
@@ -25,9 +32,8 @@ public class RoomListForm extends JFrame {
 
 
     public RoomListForm(String username) {
-        this.currentUser = username;
+        this.currentUser = new Peer(username);
         initComponents();
-        loadInitialRooms();
         loadRooms();
 
         // Periksa apakah ada room yang sudah di-close
@@ -35,6 +41,9 @@ public class RoomListForm extends JFrame {
             // Jika room sudah di-close, hapus dari list
             removeRoom(username + "'s Room");
         }
+
+        //refresh listRoom setiap 3 detik
+        new Thread(this::refreshRoomList).start();
     }
 
     private void initComponents() {
@@ -81,21 +90,10 @@ public class RoomListForm extends JFrame {
 
         add(mainPanel);
     }
-    
-    private void loadInitialRooms() {
-        if (rooms.isEmpty()) {
-            // Gunakan constructor yang tepat
-            rooms.add(new Room("General", "Admin", new ArrayList<>(List.of("Admin", "Alice", "Bob")), 
-                       new ArrayList<>(List.of("Admin", "Alice")), "2023-05-15"));
-
-            rooms.add(new Room("Java Programming", "Alice", new ArrayList<>(List.of("Alice", "Bob")),
-                       new ArrayList<>(List.of("Alice")), "2023-05-16"));
-        }
-    }
 
     private void loadRooms() {
         tableModel.setRowCount(0);
-        for (Room room : rooms) {
+        for (Room room : currentUser.getRoomList()) {
             Object[] rowData = {
                 room.getName(),
                 room.getOwner(),
@@ -123,25 +121,22 @@ public class RoomListForm extends JFrame {
 
         if (selectedRoom != null) {
             // Tambahkan user ke room sebelum masuk
-            selectedRoom.addMember(currentUser);
-            selectedRoom.setOnline(currentUser, true);
+            
+            //fungsi ini bakal request buat join room dan kalo requestnya diterima user join bakal di announce 
+            if(currentUser.joinRoom(roomName) == false){
+                //tampilin window error, user sudah di-ban
+                //buat sekarang asumsi bahwa request bakal selalu sampe, dan response selalu diterima
+                return;
+            }
 
             dispose();
             new ChatRoomForm(currentUser, selectedRoom).setVisible(true);
         }
     }
 
-    public void addNewRoom(Room newRoom) {
-        if (!roomExists(newRoom.getName())) {
-            rooms.add(newRoom);
-            Object[] rowData = {
-                newRoom.getName(),
-                newRoom.getOwner(),
-                "1 user",
-                newRoom.getCreatedAt()
-            };
-            tableModel.addRow(rowData);
-        }
+    public void addNewRoom(String roomName) {
+        currentUser.createRoom(roomName);
+        loadRooms();
     }
     
     private boolean roomExists(String roomName) {
@@ -163,25 +158,13 @@ public class RoomListForm extends JFrame {
     }
     
     public void refreshRoomList() {
-        loadRooms();
-
-        // Jika implementasi socket, tambahkan:
-        // broadcastRoomListUpdate();
-    }
-    
-    public void addNewMemberToRoom(String roomName, String username) {
-        Room room = findRoomByName(roomName);
-        if (room != null) {
-            room.addMember(username);
-            room.setOnline(username, true); // Otomatis online saat pertama bergabung
-        }
-    }
-
-    // Contoh mengubah status online
-    public void updateUserOnlineStatus(String roomName, String username, boolean isOnline) {
-        Room room = findRoomByName(roomName);
-        if (room != null) {
-            room.setOnline(username, isOnline);
+        while(true){
+            loadRooms();
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

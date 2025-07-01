@@ -4,6 +4,7 @@
  */
 package Jarkom.chatapp.forms;
 
+import Jarkom.chatapp.Peer;
 import Jarkom.chatapp.models.Message;
 import Jarkom.chatapp.models.Room;
 import javax.swing.*;
@@ -24,7 +25,7 @@ import java.util.Set;
 import java.util.HashSet;
 
 public class ChatRoomForm extends JFrame {
-    private String currentUser;
+    private Peer currentUser;
     private Room currentRoom;
     //private DefaultListModel<String> userListModel;
     
@@ -48,11 +49,10 @@ public class ChatRoomForm extends JFrame {
     private final ImageIcon userIcon = loadAndScaleIcon("/Images/user_icon.jpg", 16, 16);
     private final ImageIcon kickIcon = loadAndScaleIcon("/Images/kick_icon.png", 16, 16);
 
-    public ChatRoomForm(String username, Room room) {
-        this.currentUser = username;
+    public ChatRoomForm(Peer peer, Room room) {
+        this.currentUser = peer;
         this.currentRoom = room;
-        this.currentRoom.addMember(username); // Add user to room members
-        this.currentRoom.setOnline(username, true); // Set user as online
+        this.currentRoom.addUser(peer.hostIp, peer.username); // Add user to room members
         this.messageListModel = new DefaultListModel<>();
 
         initComponents();

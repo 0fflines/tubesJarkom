@@ -4,6 +4,7 @@
  */
 package Jarkom.chatapp.forms;
 
+import Jarkom.chatapp.Peer;
 import Jarkom.chatapp.models.Room;
 import javax.swing.*;
 import java.awt.*;
@@ -20,13 +21,13 @@ public class CreateRoomForm extends JDialog {
     private JTextField roomNameField;
     private JButton createButton, cancelButton;
     private RoomListForm parentForm;
-    private String currentUser;
+    private Peer currentUser;
     private static Room lastCreatedRoom = null;
 
-    public CreateRoomForm(RoomListForm parent, String username) {
+    public CreateRoomForm(RoomListForm parent, Peer currentUser) {
         super(parent, "Create New Room", true);
         this.parentForm = parent;
-        this.currentUser = username;
+        this.currentUser = currentUser;
         initComponents();
     }
     
@@ -76,8 +77,7 @@ public class CreateRoomForm extends JDialog {
                     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
                 
                 // Buat room dengan member count 1 (hanya creator)
-                lastCreatedRoom = new Room(roomName, currentUser, 1, createdAt);
-                parentForm.addNewRoom(lastCreatedRoom);
+                parentForm.addNewRoom(roomName);
                 dispose();
             }
         });

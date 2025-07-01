@@ -1,4 +1,4 @@
-package Jarkom.chatapp;
+package Jarkom.chatapp.network;
 
 import Jarkom.chatapp.models.Room;
 import java.io.*;

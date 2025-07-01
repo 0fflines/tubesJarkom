@@ -4,8 +4,9 @@
  */
 package Jarkom.chatapp.forms;
 
-import Jarkom.chatapp.Peer;
 import Jarkom.chatapp.models.Room;
+import Jarkom.chatapp.network.Peer;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;

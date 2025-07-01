@@ -1,4 +1,4 @@
-package main;
+package Jarkom.chatapp.network;
 
 import java.util.List;
 

@@ -2,7 +2,7 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
  */
 
-package Jarkom.chatapp;
+package Jarkom.chatapp.network;
 
 import Jarkom.chatapp.forms.LoginForm;
 

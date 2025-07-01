@@ -1,4 +1,4 @@
-package Jarkom.chatapp;
+package Jarkom.chatapp.network;
 
 import java.io.*;
 import java.net.ServerSocket;

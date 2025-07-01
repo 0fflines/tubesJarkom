@@ -32,16 +32,18 @@ public class Client {
     }
 
     public void forwardPacket(String packet) {
-        if (out != null) {
-            try {
-                out.writeUTF(packet);
-                out.flush();
-            } catch (IOException e) {
-                System.err.println("[Client] Gagal mengirim paket. Mencoba menyambung ulang...");
-                initConnection(); // Coba sambung ulang jika gagal
-            }
-        } else {
-            System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
+        System.out.println("MENCOBA FORWARD KE "+destinationHost+":"+destinationPort);
+        if (!isConnectionActive()) {
+            System.out.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
+            // Optionally trigger reconnection or peer skipping here
+            return;
+        }
+        try {
+            out.writeUTF(packet);
+            out.flush();
+        } catch (IOException e) {
+            System.err.println("[Client] Gagal mengirim paket: " + e.getMessage());
+            // Optionally trigger reconnection or peer skipping here
         }
     }
 

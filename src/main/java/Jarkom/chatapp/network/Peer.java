@@ -75,11 +75,18 @@ public class Peer implements Server.PacketListener {
                 replyStream.writeUTF("SUCCESSOR|" + successorHost);
                 System.out.println("\n[SISTEM] Merespon permintaan JOIN dari " + data);
                 return;
-            } else if ("READY".equals(type) && !isJoining) {
+            // } else if ("READY".equals(type) && !isJoining) {
+            //     System.out.println(
+            //             "\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
+            //     chatClient.closeConnection();
+            //     chatClient = new Client(lastJoinRequesterHost, chatPort);
+            //     chatClient.initConnection();
+            //     return;
+            }else if("READY".equals(type)){
                 System.out.println(
-                        "\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ". Menyambung ulang...");
+                        "\n[SISTEM] Menerima sinyal READY dari " + data + ". Menyambung ulang...");
                 chatClient.closeConnection();
-                chatClient = new Client(lastJoinRequesterHost, chatPort);
+                chatClient = new Client(data, chatPort);
                 chatClient.initConnection();
                 return;
             } else if ("LEAVE_NETWORK".equals(type)) {
@@ -109,34 +116,38 @@ public class Peer implements Server.PacketListener {
                 waitingRoomResponse = false;
                 roomRequestAccepted = true;
             }
-        } catch (IOException e) {
+        }catch(
+
+    IOException e)
+    {
             System.err.println("Error saat handshake: " + e.getMessage());
         }
 
-        // Pesan gossip (CHAT, ROOM_ANNOUNCE, JOIN_ROOM, EXIT_ROOM)
-        if (seenPacketIDs.add(packet)) {
-            if ("CHAT".equals(type)) {
-                handleChatMessage(data);
-            } else if ("ROOM_ANNOUNCE".equals(type)) {
-                System.out.println("ACCEPTED ROOM ANNOUNCE");
-                handleRoomAnnouncement(data, parts[1], parts[2]);
-                for(Room room : this.getRoomList()){
-                    System.out.println(room.getName());
-                }
-            } else if ("JOIN_ROOM".equals(type)) {
-                // roomname, ip, username
-                handleJoinRoom(data, parts[2], parts[3]);
-            } else if ("EXIT_ROOM".equals(type)) {
-                // roomname, ip, username
-                handleExitRoom(data, parts[2], parts[3]);
-            } else if ("BAN_ANNOUNCE".equals(type)) {
-                handleBanAnnounce(parts[1], parts[2]);
+    // Pesan gossip (CHAT, ROOM_ANNOUNCE, JOIN_ROOM, EXIT_ROOM)
+    if(seenPacketIDs.add(packet))
+    {
+        if ("CHAT".equals(type)) {
+            handleChatMessage(data);
+        } else if ("ROOM_ANNOUNCE".equals(type)) {
+            System.out.println("ACCEPTED ROOM ANNOUNCE");
+            handleRoomAnnouncement(data, parts[1], parts[2]);
+            for (Room room : this.getRoomList()) {
+                System.out.println(room.getName());
             }
-            // Teruskan paket gossip
-            synchronized (clientLock) {
-                chatClient.forwardPacket(packet);
-            }
+        } else if ("JOIN_ROOM".equals(type)) {
+            // roomname, ip, username
+            handleJoinRoom(data, parts[2], parts[3]);
+        } else if ("EXIT_ROOM".equals(type)) {
+            // roomname, ip, username
+            handleExitRoom(data, parts[2], parts[3]);
+        } else if ("BAN_ANNOUNCE".equals(type)) {
+            handleBanAnnounce(parts[1], parts[2]);
         }
+        // Teruskan paket gossip
+        synchronized (clientLock) {
+            chatClient.forwardPacket(packet);
+        }
+    }
     }
 
     public void leaveNetwork() {
@@ -379,9 +390,10 @@ public class Peer implements Server.PacketListener {
 
             // Phase 2: READY on socket s2
             try (Socket s2 = new Socket()) {
+                System.out.println("connecting to "+successorIp);
                 s2.connect(new InetSocketAddress(successorIp, chatPort), 200);
                 DataOutputStream out2 = new DataOutputStream(s2.getOutputStream());
-                out2.writeUTF("READY");
+                out2.writeUTF("READY|"+hostIp);
             } catch (IOException readyEx) {
                 // This should rarely happen if JOIN succeeded, but if it does:
                 System.err.println("[WARN] READY failed to " + ip);
@@ -389,6 +401,7 @@ public class Peer implements Server.PacketListener {
             }
 
             // Phase 3: establish our outgoing chatClient to the successor
+            System.out.println("connecting to "+successorIp);
             this.chatClient = new Client(successorIp, chatPort);
             if (!this.chatClient.initConnection()) {
                 System.err.println("[ERROR] Could not connect to successor at " + successorIp);
@@ -487,7 +500,8 @@ public class Peer implements Server.PacketListener {
         if (!knownRooms.containsKey(roomName)) {
             Room newRoom = new Room(roomName, this.hostIp, LocalDate.now().toString());
             knownRooms.put(roomName, newRoom);
-            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString() + "|"+ username;
+            String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString() + "|"
+                    + username;
             seenPacketIDs.add(packet);
             synchronized (clientLock) {
                 System.out.println("SENDING PACKET");

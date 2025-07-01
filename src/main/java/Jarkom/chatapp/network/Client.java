@@ -2,6 +2,7 @@ package Jarkom.chatapp.network;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 
 public class Client {
@@ -17,6 +18,8 @@ public class Client {
 
     public boolean initConnection() {
         try {
+            boolean isOpen = isPortOpen(destinationHost, destinationPort);
+            System.out.println("IS PORT OPEN:+" + isOpen);
             this.socket = new Socket(destinationHost, destinationPort);
             this.out = new DataOutputStream(socket.getOutputStream());
             System.out.println("[Client] Terhubung ke peer: " + destinationHost + ":" + destinationPort);
@@ -38,7 +41,7 @@ public class Client {
                 initConnection(); // Coba sambung ulang jika gagal
             }
         } else {
-             System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
+            System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
         }
     }
 
@@ -55,5 +58,14 @@ public class Client {
 
     public boolean isConnectionActive() {
         return socket != null && !socket.isClosed() && out != null;
+    }
+
+    public boolean isPortOpen(String host, int port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), 1000);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 }

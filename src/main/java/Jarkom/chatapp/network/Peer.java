@@ -352,34 +352,28 @@ public class Peer implements Server.PacketListener {
             String ip = subnet + i;
             if (ip.equals(hostIp))
                 continue;
-            try (Socket s = new Socket()) {
-                boolean connected = false;
-                for (int attempt = 0; attempt < 5 && !connected; attempt++) {
-                    try {
-                        s.connect(new InetSocketAddress(ip, chatPort), 200);
-                        connected = true;
-                    } catch (IOException e) {
-                        Thread.sleep(100); // wait and retry
-                    }
-                }
-                if (!connected)
-                    continue; // give up on this peer
+            try (Socket s = new Socket(ip, chatPort)) {
                 DataInputStream in = new DataInputStream(s.getInputStream());
                 DataOutputStream out = new DataOutputStream(s.getOutputStream());
 
+                // Phase 1: ask to join
                 out.writeUTF("JOIN_NETWORK|" + hostIp);
 
-                String response = in.readUTF();
+                // Phase 2: read successor response
+                String response = in.readUTF(); // e.g. "SUCCESSOR|10.0.0.5"
                 String successorIp = response.split("\\|")[1];
 
+                // Phase 3: immediately tell server "READY" on the same socket
+                out.writeUTF("READY");
+
+                // Now that the server knows to splice you in,
+                // you can switch your chatClient to the new successor:
                 this.chatClient = new Client(successorIp, chatPort);
                 this.chatClient.initConnection();
 
-                try (Socket ack = new Socket(ip, chatPort)) {
-                    new DataOutputStream(ack.getOutputStream()).writeUTF("READY");
-                }
                 return;
-            } catch (Exception e) {
+            } catch (IOException e) {
+                // handle failure...
             }
         }
         // Jika sampai sini, berarti Peer ini adalah yang pertama di network

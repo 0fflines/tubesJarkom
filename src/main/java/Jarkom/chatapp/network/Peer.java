@@ -182,7 +182,7 @@ public class Peer implements Server.PacketListener {
         System.exit(0);
     }
 
-    public void leaveAck(String newSuccessorIP, int newSuccessorPort) {
+    private void leaveAck(String newSuccessorIP, int newSuccessorPort) {
         synchronized (clientLock) {
             String ackPacket = "LEAVE_ACK|" + chatClient.destinationHost;
             chatClient.forwardPacket(ackPacket);

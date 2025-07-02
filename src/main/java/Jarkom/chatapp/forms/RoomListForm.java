@@ -18,11 +18,11 @@ import java.util.List;
  * @author azrie
  */
 
-//PERLU WINDOW BARU
-//1. Nunggu request join room
-//2. User telah diban
-//3. Sedang disconnect dari network waktu tutup network
-//4. Request join room gagal/user di ban jadi g bisa masuk
+// PERLU WINDOW BARU
+// 1. Nunggu request join room
+// 2. User telah diban
+// 3. Sedang disconnect dari network waktu tutup network
+// 4. Request join room gagal/user di ban jadi g bisa masuk
 
 public class RoomListForm extends JFrame {
     private Peer currentUser;
@@ -30,7 +30,6 @@ public class RoomListForm extends JFrame {
     private DefaultTableModel tableModel;
     private JButton joinButton, createButton, refreshButton;
     private static List<Room> rooms = new ArrayList<>();
-
 
     public RoomListForm(Peer peer) {
         this.currentUser = peer;
@@ -43,15 +42,25 @@ public class RoomListForm extends JFrame {
             removeRoom(currentUser.username + "'s Room");
         }
 
-        //refresh listRoom setiap 3 detik
+        // refresh listRoom setiap 3 detik
         new Thread(this::refreshRoomList).start();
     }
 
     private void initComponents() {
         setTitle("Chat App - Room List (" + currentUser + ")");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(600, 400);
         setLocationRelativeTo(null);
+
+        //override fungsi exit
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent evt) {
+                currentUser.leaveNetwork();
+                dispose();
+                System.exit(0);
+            }
+        });
 
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -62,7 +71,7 @@ public class RoomListForm extends JFrame {
         titlePanel.add(titleLabel);
         mainPanel.add(titlePanel, BorderLayout.NORTH);
 
-        String[] columnNames = {"Room Name", "Owner", "Users", "Created At"};
+        String[] columnNames = { "Room Name", "Owner", "Users", "Created At" };
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -96,37 +105,39 @@ public class RoomListForm extends JFrame {
         tableModel.setRowCount(0);
         for (Room room : currentUser.getRoomList()) {
             Object[] rowData = {
-                room.getName(),
-                room.getOwner(),
-                room.getTotalMembers() + " users",  // Format sederhana
-                room.getFormattedCreatedAt()  // Format tanggal yang lebih baik
+                    room.getName(),
+                    room.getOwner(),
+                    room.getTotalMembers() + " users", // Format sederhana
+                    room.getFormattedCreatedAt() // Format tanggal yang lebih baik
             };
             tableModel.addRow(rowData);
         }
     }
-    
+
     private void joinRoom() {
         int selectedRow = roomTable.getSelectedRow();
         if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, 
-                "Please select a room to join", 
-                "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Please select a room to join",
+                    "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         String roomName = (String) tableModel.getValueAt(selectedRow, 0);
         Room selectedRoom = rooms.stream()
-            .filter(r -> r.getName().equals(roomName))
-            .findFirst()
-            .orElse(null);
+                .filter(r -> r.getName().equals(roomName))
+                .findFirst()
+                .orElse(null);
 
         if (selectedRoom != null) {
             // Tambahkan user ke room sebelum masuk
-            
-            //fungsi ini bakal request buat join room dan kalo requestnya diterima user join bakal di announce 
-            if(currentUser.joinRoom(roomName) == false){
-                //tampilin window error, user sudah di-ban
-                //buat sekarang asumsi bahwa request bakal selalu sampe, dan response selalu diterima
+
+            // fungsi ini bakal request buat join room dan kalo requestnya diterima user
+            // join bakal di announce
+            if (currentUser.joinRoom(roomName) == false) {
+                // tampilin window error, user sudah di-ban
+                // buat sekarang asumsi bahwa request bakal selalu sampe, dan response selalu
+                // diterima
                 return;
             }
 
@@ -140,7 +151,7 @@ public class RoomListForm extends JFrame {
         System.out.println("asoduhsaohd");
         loadRooms();
     }
-    
+
     private boolean roomExists(String roomName) {
         for (Room room : rooms) {
             if (room.getName().equalsIgnoreCase(roomName)) {
@@ -149,18 +160,18 @@ public class RoomListForm extends JFrame {
         }
         return false;
     }
-    
+
     private void createRoom() {
         CreateRoomForm createRoomForm = new CreateRoomForm(this, currentUser);
         createRoomForm.setVisible(true);
     }
-    
+
     public static void removeRoom(String roomName) {
         rooms.removeIf(room -> room.getName().equalsIgnoreCase(roomName));
     }
-    
+
     public void refreshRoomList() {
-        while(true){
+        while (true) {
             loadRooms();
             try {
                 Thread.sleep(3000);
@@ -172,8 +183,8 @@ public class RoomListForm extends JFrame {
 
     private Room findRoomByName(String roomName) {
         return rooms.stream()
-            .filter(r -> r.getName().equals(roomName))
-            .findFirst()
-            .orElse(null);
+                .filter(r -> r.getName().equals(roomName))
+                .findFirst()
+                .orElse(null);
     }
 }

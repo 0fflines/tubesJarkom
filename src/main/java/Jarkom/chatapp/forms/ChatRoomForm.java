@@ -57,13 +57,13 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         currentUser.addChatMessageListener(this);
         startMembersRefreshThread();
     }
-    
+
     @Override
     public void dispose() {
         currentUser.removeChatMessageListener(this);
         super.dispose();
     }
-    
+
     @Override
     public void onChatMessage(String formattedMessage) {
         SwingUtilities.invokeLater(() -> {
@@ -71,7 +71,28 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
             messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
         });
     }
-    
+
+    @Override
+    public void kickUser() {
+        try {
+            currentUser.exitRoom(currentRoom.getName());
+            addSystemMessage(currentUser.username + " has been banned");
+
+            Timer timer = new Timer(1000, e -> {
+                this.dispose();
+                new RoomListForm(currentUser).setVisible(true);
+            });
+            timer.setRepeats(false);
+            timer.start();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Error banning user: " + ex.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void displayLocalMessage(String text) {
         SwingUtilities.invokeLater(() -> {
             String formatted = String.format("[%s] [YOU]\n%s",
@@ -209,11 +230,11 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
         JScrollPane messageScroll = new JScrollPane(messageList);
         messageScroll.setBorder(new RoundBorder(new Color(200, 200, 200), 10));
-        
+
         chatPanel.add(messageScroll, BorderLayout.CENTER);
         add(chatPanel, BorderLayout.CENTER);
     }
-    
+
     private void setupMembersPanel() {
         JPanel membersPanel = new JPanel();
         membersPanel.setLayout(new BoxLayout(membersPanel, BoxLayout.Y_AXIS));
@@ -222,11 +243,11 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
         membersList = new JList<>(membersListModel);
         membersList.setCellRenderer(new MemberListRenderer());
-        
+
         JScrollPane scrollPane = new JScrollPane(membersList);
         scrollPane.setBorder(BorderFactory.createTitledBorder("Members"));
         membersPanel.add(scrollPane);
-        
+
         add(membersPanel, BorderLayout.EAST);
     }
 
@@ -385,7 +406,8 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
     private void handleSendMessage() {
         String text = messageArea.getText().trim();
-        if (text.isEmpty() || !currentUser.isConnected()) return;
+        if (text.isEmpty() || !currentUser.isConnected())
+            return;
 
         displayLocalMessage(text);
         currentUser.sendMessage(currentRoom.getName(), text);
@@ -426,9 +448,9 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
         setupInfoPanel();
         setupChatPanel();
-        initMembersPanel();  // Panggil method initMembersPanel di sini
+        initMembersPanel(); // Panggil method initMembersPanel di sini
         setupInputPanel();
-        startMembersRefreshThread();  // Mulai thread refresh
+        startMembersRefreshThread(); // Mulai thread refresh
 
         addWindowListener(new WindowAdapter() {
             @Override
@@ -437,47 +459,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
             }
         });
     }
-    /*
-    private void initComponents() {
-        setTitle("Chat App - " + currentRoom.getName() + " (" + currentUser + ")");
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setSize(900, 650);
-        setLocationRelativeTo(null);
-        setLayout(new BorderLayout());
 
-        // 1. Info Panel (Top)
-        setupInfoPanel();
-
-        // 2. Members Panel (Right) - Sudah diinisialisasi di initMembersPanel()
-        initMembersPanel();
-
-        // 3. Main Chat Area (Center)
-        JPanel chatPanel = new JPanel(new BorderLayout());
-
-        // Message list
-        messageList = new JList<>(messageListModel);
-        messageList.setCellRenderer(new MessageCellRenderer());
-        messageList.setLayoutOrientation(JList.VERTICAL);
-        messageList.setVisibleRowCount(-1);
-        messageList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
-        JScrollPane messageScroll = new JScrollPane(messageList);
-        messageScroll.setBorder(new RoundBorder(new Color(200, 200, 200), 10));
-
-        chatPanel.add(messageScroll, BorderLayout.CENTER);
-        add(chatPanel, BorderLayout.CENTER);
-
-        // 4. Input Panel (Bottom)
-        setupInputPanel();
-
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                handleLeaveRoom();
-            }
-        });
-    }
-*/
     private void initMembersPanel() {
         JPanel membersPanel = new JPanel();
         membersPanel.setLayout(new BoxLayout(membersPanel, BoxLayout.Y_AXIS));
@@ -574,6 +556,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
         if (confirm == JOptionPane.YES_OPTION) {
             membersListModel.removeElement(username);
+            currentUser.banUser(currentRoom.getName(), username);
             addSystemMessage(username + " has been kicked by owner");
         }
     }

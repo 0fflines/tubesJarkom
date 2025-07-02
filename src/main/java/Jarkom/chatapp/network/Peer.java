@@ -37,6 +37,8 @@ public class Peer implements Server.PacketListener {
 
     public static interface ChatMessageListener {
         void onChatMessage(String formattedMessage);
+
+        void kickUser();
     }
 
     // 2) Store listeners
@@ -307,6 +309,9 @@ public class Peer implements Server.PacketListener {
         Room chatRoom = knownRooms.get(roomName);
         if (chatRoom != null) {
             chatRoom.banUser(bannedIp);
+            for (ChatMessageListener l : chatListeners) {
+                l.kickUser();
+            }
         } else {
             System.out.println("Room tidak ditemukan");
         }

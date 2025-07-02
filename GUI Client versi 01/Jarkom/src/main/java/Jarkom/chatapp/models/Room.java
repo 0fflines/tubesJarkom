@@ -1,128 +1,92 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package Jarkom.chatapp.models;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
-/**
- *
- * @author azrie
- */
-
+// NOTE: Versi ini tidak menggunakan komponen Swing agar tetap sederhana
+// dan sesuai dengan logika konsol yang ada di Peer Anda.
 public class Room {
-    private String name;
-    private String owner;
-    private List<String> members = new ArrayList<>();      // Inisialisasi langsung
-    private List<String> onlineMembers = new ArrayList<>(); // Inisialisasi langsung
-    private String createdAt;
+    private final String roomName;
+    private final String owner;
+    private LocalDateTime lastAnnounced;
+    private HashMap<String, String> currUsers; // Key: IP, Value: Username
+    private HashSet<String> bannedUsers;
+    private LocalDateTime createdAt;
+    private DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    // Constructor 1
     public Room(String name, String owner) {
-        this(name, owner, new ArrayList<>(), new ArrayList<>(), "");
-    }
-
-    // Constructor 2 (perbaiki yang ini)
-    public Room(String name, String owner, int totalMembers, String createdAt) {
-        this.name = name;
+        this.roomName = name;
         this.owner = owner;
-        this.members = new ArrayList<>();
-        this.onlineMembers = new ArrayList<>();
-        this.createdAt = createdAt;
-        
-        // Tambahkan owner sebagai member pertama
-        this.members.add(owner);
+        this.lastAnnounced = LocalDateTime.now();
+        this.createdAt = LocalDateTime.now();
+        this.currUsers = new HashMap<>();
+        this.bannedUsers = new HashSet<>();
+        System.out.println("--- Info: Room '" + name + "' (Owner: " + owner + ") created ---");
     }
 
-    // Constructor 3
-    public Room(String name, String owner, List<String> members, 
-               List<String> onlineMembers, String createdAt) {
-        this.name = name;
-        this.owner = owner;
-        this.members = new ArrayList<>(members);
-        this.onlineMembers = new ArrayList<>(onlineMembers);
-        this.createdAt = createdAt;
+    public String getName() { 
+        return roomName; 
+    }
+    
+    public String getOwner() { 
+        return owner; 
     }
 
-    public void addMember(String username) {
-        if (!members.contains(username)) {
-            members.add(username);
+    public void updateLastAnnounced() { 
+        this.lastAnnounced = LocalDateTime.now(); 
+    }
+
+    public boolean isStale(Duration timeout) {
+        return Duration.between(lastAnnounced, LocalDateTime.now()).compareTo(timeout) > 0;
+    }
+
+    public void displayMessage(String sender, String content) {
+        System.out.println(String.format("[%s]: %s", sender, content));
+    }
+
+    public void addUser(String ip, String username) {
+        currUsers.put(ip, username);
+    }
+
+    public void removeUser(String ip) {
+        currUsers.remove(ip);
+    }
+
+    public String banUser(String ip) {
+        String bannedUser = currUsers.remove(ip);
+        if (bannedUser != null) {
+            bannedUsers.add(ip);
         }
-    }
-    
-    public void removeMember(String username) {
-        members.remove(username);
-        onlineMembers.remove(username);
-    }
-    
-    // Getter methods
-    public String getName() {
-        return name;
+        return bannedUser;
     }
 
-    public String getOwner() {
-        return owner;
+    public boolean isBanned(String ip) {
+        return bannedUsers.contains(ip);
     }
 
     public int getTotalMembers() {
-        return members.size();
+        return currUsers.size();
     }
 
-    public String getCreatedAt() {
-        return createdAt;
-    }
-    
-    // Getter methods
-    public List<String> getMembers() {
-        return new ArrayList<>(members); // Return copy untuk menghindari modifikasi langsung
-    }
-
-    public List<String> getOnlineMembers() {
-        return new ArrayList<>(onlineMembers);
-    }
-
-    public int getOnlineCount() {
-        return onlineMembers.size();
-    }
-
-    // Formatted date for display
     public String getFormattedCreatedAt() {
-        try {
-            LocalDateTime date = LocalDateTime.parse(createdAt, 
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-            return date.format(DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm"));
-        } catch (Exception e) {
-            return createdAt;
-        }
+        return createdAt.format(dateFormatter);
     }
     
-    // Setter methods (jika diperlukan)
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public void setOwner(String owner) {
-        this.owner = owner;
-    }
-
-    public void setCreatedAt(String createdAt) {
-        this.createdAt = createdAt;
+    public Set<String> getUsers() {
+        return new HashSet<>(currUsers.values());
     }
     
-    public void setOnline(String username, boolean isOnline) {
-        if (isOnline) {
-            if (!onlineMembers.contains(username)) {
-                onlineMembers.add(username);
-            }
-            if (!members.contains(username)) {
-                members.add(username); // Otomatis jadi member jika online
-            }
-        } else {
-            onlineMembers.remove(username);
-        }
+    // Untuk mendapatkan semua IP user (jika diperlukan)
+    public Set<String> getUserIPs() {
+        return currUsers.keySet();
+    }
+    
+    // Untuk mendapatkan username berdasarkan IP
+    public String getUsername(String ip) {
+        return currUsers.get(ip);
     }
 }

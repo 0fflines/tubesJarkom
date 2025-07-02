@@ -359,29 +359,29 @@ public class Peer implements Server.PacketListener {
         System.out.println("[SYSTEM] Scanning for peers...");
         for (int i = 1; i <= 254; i++) {
             String ip = subnet + i;
+            System.out.println(ip);
             if (ip.equals(hostIp))
                 continue;
 
-            try (Socket s = new Socket(ip, chatPort);
-                    DataOutputStream out = new DataOutputStream(s.getOutputStream());
-                    DataInputStream in = new DataInputStream(s.getInputStream())) {
+            try (Socket s = new Socket()) {
+                s.connect(new InetSocketAddress(ip, chatPort), 200);
 
-                // 1) ask to join
-                out.writeUTF("JOIN_NETWORK|" + hostIp);
+                // Once connected, do the single‐step join handshake
+                try (DataOutputStream out = new DataOutputStream(s.getOutputStream());
+                        DataInputStream in = new DataInputStream(s.getInputStream())) {
 
-                // 2) get the successor back
-                String resp = in.readUTF(); // "SUCCESSOR|Z"
-                String succIp = resp.split("\\|", 2)[1];
+                    out.writeUTF("JOIN_NETWORK|" + hostIp);
+                    String resp = in.readUTF(); // e.g. "SUCCESSOR|10.0.0.5"
+                    String succIp = resp.split("\\|", 2)[1];
 
-                // 3) install new downstream
-                synchronized (clientLock) {
-                    chatClient = new Client(succIp, chatPort);
+                    synchronized (clientLock) {
+                        chatClient = new Client(succIp, chatPort);
+                    }
+                    System.out.println("[SYSTEM] Joined via " + ip + "; downstream is " + succIp);
+                    return;
                 }
-                System.out.println("[SYSTEM] Joined via " + ip + "; downstream is " + succIp);
-                return;
-
-            } catch (IOException ignored) {
-                // try next IP
+            } catch (IOException e) {
+                // Timeout or refused: try the next IP immediately
             }
         }
 

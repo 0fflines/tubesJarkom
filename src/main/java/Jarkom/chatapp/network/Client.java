@@ -32,18 +32,19 @@ public class Client {
     }
 
     public void forwardPacket(String packet) {
-        System.out.println("MENCOBA FORWARD KE "+destinationHost+":"+destinationPort);
-        if (!isConnectionActive()) {
-            System.out.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
-            // Optionally trigger reconnection or peer skipping here
-            return;
-        }
-        try {
-            out.writeUTF(packet);
-            out.flush();
+        System.out.println("[Client] Opening new socket to "
+                + destinationHost + ":" + destinationPort
+                + " → sending “" + packet + "”");
+        try (Socket sock = new Socket()) {
+            sock.connect(new InetSocketAddress(destinationHost, destinationPort), 500);
+            try (DataOutputStream out = new DataOutputStream(sock.getOutputStream())) {
+                out.writeUTF(packet);
+                out.flush();
+            }
         } catch (IOException e) {
-            System.err.println("[Client] Gagal mengirim paket: " + e.getMessage());
-            // Optionally trigger reconnection or peer skipping here
+            System.err.println("[Client] Gagal mengirim paket ke "
+                    + destinationHost + ":" + destinationPort
+                    + " — " + e.getMessage());
         }
     }
 

@@ -16,16 +16,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.*;
 import java.nio.file.*;
-import java.net.Socket;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import java.net.URL;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
-import java.util.Arrays;
 import java.util.Set;
 import java.util.HashSet;
 
-public class ChatRoomForm extends JFrame {
+public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener{
     private Peer currentUser;
     private Room currentRoom;
     // private DefaultListModel<String> userListModel;
@@ -52,9 +49,10 @@ public class ChatRoomForm extends JFrame {
 
     public ChatRoomForm(Peer peer, Room room) {
         this.currentUser = peer;
+        this.messageListModel = new DefaultListModel<>();
+        this.messageList = new JList<>(messageListModel);
         this.currentRoom = room;
         this.currentRoom.addUser(peer.hostIp, peer.username); // Add user to room members
-        this.messageListModel = new DefaultListModel<>();
 
         initComponents();
         initMembersPanel();
@@ -64,6 +62,43 @@ public class ChatRoomForm extends JFrame {
         setupChatPanel();
         setupInputPanel();
         setupEventHandlers();
+
+        currentUser.addChatMessageListener(this);
+    }
+
+    @Override
+    public void dispose() {
+        // ** Clean up listener to avoid memory leaks **
+        currentUser.removeChatMessageListener(this);
+        super.dispose();
+    }
+
+    //MENERIMA CHAT DARI LUAR
+    @Override
+    public void onChatMessage(String formattedMessage) {
+        // May come in on a network thread → push to EDT
+        SwingUtilities.invokeLater(() -> {
+            messageListModel.addElement(formattedMessage);
+            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+        });
+    }
+
+    //PRINT CHAT DARI USER
+    private void displayLocalMessage(String text, String username, String ip) {
+        SwingUtilities.invokeLater(() -> {
+            String formattedMessage = String.format("[%s]([%s])\n%s",
+                    currentUser.username, currentUser.hostIp, text);
+            if(ip.equals(currentUser.hostIp)){
+            formattedMessage = String.format("[%s](YOU)\n%s",
+                    currentUser.username, text);
+            }
+
+            currentUser.sendMessage(currentRoom.getName(), text);
+
+            messageListModel.addElement(formattedMessage);
+            messageArea.setText("");
+            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+        });
     }
 
     private ImageIcon loadAndScaleIcon(String path, int width, int height) {
@@ -291,6 +326,7 @@ public class ChatRoomForm extends JFrame {
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {
+                currentUser.exitRoom(currentRoom.getName());
                 addSystemMessage(currentUser + " has left the room");
                 onlineListModel.removeElement(currentUser);
 
@@ -407,23 +443,11 @@ public class ChatRoomForm extends JFrame {
             currentUser.sendMessage(currentRoom.getName(), text);
 
             // Tampilkan pesan lokal
-            displayLocalMessage(text);
+            displayLocalMessage(text, currentUser.username, currentUser.hostIp);
 
         } catch (Exception ex) {
             handleSendError(ex);
         }
-    }
-
-    private void displayLocalMessage(String text) {
-        SwingUtilities.invokeLater(() -> {
-            String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-            String formattedMessage = String.format("[%s] [%s]\n%s",
-                    currentUser, time, text);
-
-            messageListModel.addElement(formattedMessage);
-            messageArea.setText("");
-            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
-        });
     }
 
     private boolean isPeerConnected() {

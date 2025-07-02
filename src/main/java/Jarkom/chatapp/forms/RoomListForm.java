@@ -139,6 +139,7 @@ public class RoomListForm extends JFrame {
                 return;
             }
 
+            currentUser.activeChatRoom = selectedRoom;
             dispose();
             new ChatRoomForm(currentUser, selectedRoom).setVisible(true);
         } else {

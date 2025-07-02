@@ -1,13 +1,17 @@
 package Jarkom.chatapp.network;
 
+import Jarkom.chatapp.models.Message;
 import Jarkom.chatapp.models.Room;
 import java.io.*;
 import java.net.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 
 public class Peer implements Server.PacketListener {
+
     public final String username;
     public final String hostIp;
     private final String subnet;
@@ -18,7 +22,7 @@ public class Peer implements Server.PacketListener {
 
     private final HashSet<String> seenPacketIDs = new HashSet<>();
     public final Map<String, Room> knownRooms = new ConcurrentHashMap<>();
-    private Room activeChatRoom;
+    public Room activeChatRoom;
     private String lastJoinRequesterHost;
 
     private final Object leaveLock = new Object();
@@ -30,6 +34,37 @@ public class Peer implements Server.PacketListener {
 
     private final CountDownLatch serverReadyLatch = new CountDownLatch(1);
     private volatile boolean isJoining = false;
+
+    public static interface ChatMessageListener {
+        void onChatMessage(String formattedMessage);
+    }
+
+    // 2) Store listeners
+    private final CopyOnWriteArrayList<ChatMessageListener> chatListeners = new CopyOnWriteArrayList<>();
+
+    public void addChatMessageListener(ChatMessageListener l) {
+        chatListeners.addIfAbsent(l);
+    }
+
+    public void removeChatMessageListener(ChatMessageListener l) {
+        chatListeners.remove(l);
+    }
+
+    private void handleChatMessage(String[] parts) {
+        // parts[0] = roomName
+        String senderIP = parts[1];
+        String senderName = parts[2];
+        String content = parts[3];
+        // parts[4] = msgId (we’ll ignore it in the UI)
+
+        String formatted = String.format("[%s] [%s]\n%s",
+                senderName, senderIP, content);
+
+        // dispatch to any UI listeners
+        for (ChatMessageListener l : chatListeners) {
+            l.onChatMessage(formatted);
+        }
+    }
 
     public Peer(String username) {
         this.username = username;
@@ -51,11 +86,7 @@ public class Peer implements Server.PacketListener {
         this.chatClient.initConnection();
         System.out.println("CLIENT SOCKET STARTED");
 
-        // 3. Masuk ke room default
-        this.activeChatRoom = new Room("general", "System", null);
-        this.knownRooms.put("general", this.activeChatRoom);
-
-        // 4. Jalankan discovery dan input user
+        // 3. Jalankan discovery dan input user
         new Thread(this::discoverAndJoin).start();
         System.out.println("DISCOVER AND JOIN STARTED");
     }
@@ -154,7 +185,14 @@ public class Peer implements Server.PacketListener {
             String[] p = payload.split("\\|", 3);
             switch (type) {
                 case "CHAT":
-                    handleChatMessage(payload);
+                    String[] chatParts = payload.split("\\|", 5);
+                    String roomName = chatParts[0];
+
+                    // only handle if there *is* an active room & names match
+                    if (activeChatRoom != null
+                            && activeChatRoom.getName().equals(roomName)) {
+                        handleChatMessage(chatParts);
+                    }
                     break;
                 case "ROOM_ANNOUNCE":
                     handleRoomAnnouncement(p[0], p[1], p[2]);
@@ -218,28 +256,39 @@ public class Peer implements Server.PacketListener {
                 originIp, newSuccIp, newSuccPort);
     }
 
-    public void handleJoinRoom(String roomname, String ip, String username) {
-        Room chatRoom = knownRooms.get(roomname);
-        // masukkan Ip Host dan usernamenya kedalam list user chatroom
+    public void handleJoinRoom(String roomName, String ip, String username) {
+        Room chatRoom = knownRooms.get(roomName);
+        if (chatRoom == null)
+            return;
         chatRoom.addUser(ip, username);
-        System.out.printf("[SISTEM] %s(%s) telah join room %s", username, ip, roomname);
+
+        // Only fire a SYSTEM message if *you* are in that room:
+        if (activeChatRoom != null && activeChatRoom.getName().equals(roomName)) {
+            String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+            String sysMsg = String.format("[SYSTEM] [%s]\n%s has joined the room",
+                    time, username);
+            // notify UI
+            for (ChatMessageListener l : chatListeners) {
+                l.onChatMessage(sysMsg);
+            }
+        }
     }
 
     public void handleExitRoom(String roomName, String ip, String username) {
         Room chatRoom = knownRooms.get(roomName);
-        chatRoom.removeUser(ip);
-        System.out.printf("[SISTEM] %s(%s) telah keluar room %s", username, ip, roomName);
-    }
-
-    private void handleChatMessage(String data) {
-        String[] parts = data.split("\\|", 3); // sender|roomName|content
-        if (parts.length < 3)
+        if (chatRoom == null)
             return;
-        String sender = parts[0];
-        String roomName = parts[1];
-        String content = parts[2];
+        chatRoom.removeUser(ip);
+
+        // Only fire a SYSTEM message if *you* are in that room:
         if (activeChatRoom != null && activeChatRoom.getName().equals(roomName)) {
-            System.out.printf("\n[%s] %s: %s\n> ", roomName, sender, content);
+            String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+            String sysMsg = String.format("[SYSTEM] [%s]\n%s has left the room",
+                    time, username);
+            // notify UI
+            for (ChatMessageListener l : chatListeners) {
+                l.onChatMessage(sysMsg);
+            }
         }
     }
 
@@ -347,6 +396,7 @@ public class Peer implements Server.PacketListener {
         seenPacketIDs.add(packet);
         synchronized (clientLock) {
             handleExitRoom(roomName, hostIp, username);
+            forwardGossip(packet);
         }
     }
 
@@ -371,7 +421,7 @@ public class Peer implements Server.PacketListener {
 
     public void sendMessage(String roomName, String message) {
         String msgId = UUID.randomUUID().toString();
-        String packet = String.format("CHAT|%s|%s|%s|%s", username, roomName, message, msgId);
+        String packet = String.format("CHAT|%s|%s|%s|%s|%s", roomName, hostIp, username, message, msgId);
         seenPacketIDs.add(packet);
         synchronized (clientLock) {
             chatClient.forwardPacket(packet);
@@ -414,5 +464,4 @@ public class Peer implements Server.PacketListener {
             }
         }
     }
-
 }

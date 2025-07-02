@@ -187,7 +187,7 @@ public class Peer implements Server.PacketListener {
 
         // —— gossip messages ——
         if (seenPacketIDs.add(packet)) {
-            String[] p = payload.split("\\|", 3);
+            String[] p = payload.split("\\|", 5);
             switch (type) {
                 case "CHAT":
                     String[] chatParts = payload.split("\\|", 5);
@@ -200,7 +200,7 @@ public class Peer implements Server.PacketListener {
                     }
                     break;
                 case "ROOM_ANNOUNCE":
-                    handleRoomAnnouncement(p[0], p[1], p[2]);
+                    handleRoomAnnouncement(p[0], p[1], p[2], p[3]);
                     break;
                 case "JOIN_ROOM":
                     handleJoinRoom(p[0], p[1], p[2]);
@@ -297,10 +297,10 @@ public class Peer implements Server.PacketListener {
         }
     }
 
-    private void handleRoomAnnouncement(String roomName, String owner, String date) {
+    private void handleRoomAnnouncement(String roomName, String ownerNames, String date, String ownerName) {
         System.out.println("RECEIVED ROOM ANOUNCE " + roomName);
         // knownRooms.computeIfAbsent(roomName, k -> new Room(k, owner, date));
-        knownRooms.put(roomName, new Room(roomName, owner, date));
+        knownRooms.put(roomName, new Room(roomName, ownerNames, date, ownerName));
     }
 
     private void handleBanAnnounce(String roomName, String bannedIp) {
@@ -391,7 +391,7 @@ public class Peer implements Server.PacketListener {
                 return true;
             }
             return false;
-            
+
         } catch (IOException e) {
             System.err.println("[SYSTEM] Failed to join room " + roomName + ": " + e.getMessage());
             return false;
@@ -440,7 +440,7 @@ public class Peer implements Server.PacketListener {
 
     public boolean createRoom(String roomName) {
         if (!knownRooms.containsKey(roomName)) {
-            Room newRoom = new Room(roomName, this.hostIp, LocalDate.now().toString());
+            Room newRoom = new Room(roomName, this.hostIp, LocalDate.now().toString(), this.username);
             knownRooms.put(roomName, newRoom);
             String packet = "ROOM_ANNOUNCE|" + roomName + "|" + this.hostIp + "|" + LocalDate.now().toString() + "|"
                     + username;

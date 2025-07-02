@@ -106,7 +106,7 @@ public class RoomListForm extends JFrame {
         for (Room room : currentUser.getRoomList()) {
             Object[] rowData = {
                     room.getName(),
-                    room.getOwner(),
+                    room.getOwnerName()+"("+room.getOwner()+")",
                     room.getTotalMembers() + " users", // Format sederhana
                     room.getFormattedCreatedAt() // Format tanggal yang lebih baik
             };

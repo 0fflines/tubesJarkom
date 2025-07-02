@@ -44,6 +44,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         this.currentRoom = room;
         this.messageListModel = new DefaultListModel<>();
         this.membersListModel = new DefaultListModel<>();
+        this.membersList = new JList<>();
         this.currentRoom.addUser(peer.hostIp, peer.username);
 
         initComponents();

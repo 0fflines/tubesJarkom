@@ -153,7 +153,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         infoPanel.add(leaveButton, gbc);
 
         // Owner controls (only visible if current user is owner)
-        if (currentUser.equals(currentRoom.getOwner())) {
+        if (currentUser.hostIp.equals(currentRoom.getOwner())) {
             // Close Room button
             gbc.gridy = 4;
             JButton closeButton = new JButton("Close Room", closeIcon);
@@ -270,6 +270,19 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     }
 
     private void setupEventHandlers() {
+        
+        sendButton.addActionListener(e -> handleSendMessage());
+
+        messageArea.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
+                    e.consume();
+                    handleSendMessage();
+                }
+            }
+        });
+
         // Cari leaveButton dengan cara yang lebih reliable
         Component[] components = getContentPane().getComponents();
         for (Component comp : components) {
@@ -297,18 +310,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
                 }
             }
         }
-
-        sendButton.addActionListener(e -> handleSendMessage());
-
-        messageArea.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
-                    e.consume();
-                    handleSendMessage();
-                }
-            }
-        });
     }
 
     private void handleLeaveRoom() {

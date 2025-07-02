@@ -380,14 +380,18 @@ public class Peer implements Server.PacketListener {
             // block until ACCEPT or DENY
             String resp = in.readUTF(); // e.g. "ROOM_RESPONSE|ACCEPT"
             if ("ROOM_RESPONSE|ACCEPT".equals(resp)) {
-                System.out.println("[SYSTEM] Join accepted for " + roomName);
-                this.activeChatRoom = room;
-                return true;
-            } else {
-                System.out.println("[SYSTEM] Join denied for " + roomName);
-                return false;
-            }
+                activeChatRoom = knownRooms.get(roomName);
 
+                // show your own join notice:
+                String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+                String sys = String.format("[SYSTEM] [%s]\nYou have joined room %s", time, roomName);
+                for (ChatMessageListener l : chatListeners) {
+                    l.onChatMessage(sys);
+                }
+                return true;
+            }
+            return false;
+            
         } catch (IOException e) {
             System.err.println("[SYSTEM] Failed to join room " + roomName + ": " + e.getMessage());
             return false;

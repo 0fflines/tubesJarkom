@@ -21,6 +21,7 @@ public class Room {
         this.lastAnnounced = LocalDateTime.now();
         this.createdAt = createdAt;
         currUsers = new HashMap<>();
+        bannedUsers = new HashSet<>();
         System.out.println("--- Info: Room '" + name + "' (Owner: " + owner + ") terdeteksi/dibuat. ---");
     }
 

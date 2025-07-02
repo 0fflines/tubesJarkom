@@ -38,8 +38,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     private DefaultListModel<String> offlineListModel = new DefaultListModel<>();
     private JList<String> onlineList = new JList<>(onlineListModel);
     private JList<String> offlineList = new JList<>(offlineListModel);
-    private DefaultListModel<String> membersListModel;
-    private JList<String> membersList;
 
     private final ImageIcon roomIcon = loadAndScaleIcon("/Images/room_icon.jpg", 20, 20);
     private final ImageIcon ownerIcon = loadAndScaleIcon("/Images/owner_icon.png", 20, 20);
@@ -54,7 +52,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         this.currentUser = peer;
         this.messageListModel = new DefaultListModel<>();
         this.messageList = new JList<>(messageListModel);
-        this.membersListModel = new DefaultListModel<>();
         this.currentRoom = room;
         this.currentRoom.addUser(peer.hostIp, peer.username); // Add user to room members
 
@@ -66,7 +63,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         setupChatPanel();
         setupInputPanel();
         setupEventHandlers();
-        startMembersRefreshThread();
 
         currentUser.addChatMessageListener(this);
     }
@@ -145,11 +141,12 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         ownerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         infoPanel.add(ownerLabel, gbc);
 
-        // Members label
+        // Online users count
         gbc.gridy = 2;
-        JLabel membersLabel = new JLabel("Members:", userIcon, SwingConstants.LEFT);
-        membersLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        infoPanel.add(membersLabel, gbc);
+        JLabel usersLabel = new JLabel("Members: " + (onlineListModel.size() + offlineListModel.size()) + " users",
+                userIcon, SwingConstants.LEFT);
+        usersLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        infoPanel.add(usersLabel, gbc);
 
         // Leave button
         gbc.gridy = 3;
@@ -161,8 +158,8 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         leaveButton.addActionListener(e -> handleLeaveRoom());
         infoPanel.add(leaveButton, gbc);
 
-        // Owner controls
-        if (currentUser.equals(currentRoom.getOwner())) {
+        // Owner controls (only visible if current user is owner)
+        if (currentUser.hostIp.equals(currentRoom.getOwner())) {
             // Close Room button
             gbc.gridy = 4;
             JButton closeButton = new JButton("Close Room", closeIcon);
@@ -182,20 +179,39 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
             kickButton.setBorder(new RoundBorder(Color.WHITE, 8));
             kickButton.setEnabled(false);
             kickButton.addActionListener(e -> {
-                String selectedUser = membersList.getSelectedValue();
+                String selectedUser = onlineList.getSelectedValue();
                 if (selectedUser != null) {
                     handleKickUser(selectedUser);
                 }
             });
             infoPanel.add(kickButton, gbc);
 
-            membersList.addListSelectionListener(e -> {
+            // Add selection listener to online list
+            onlineList.addListSelectionListener(e -> {
                 if (!e.getValueIsAdjusting()) {
-                    String selectedUser = membersList.getSelectedValue();
+                    String selectedUser = onlineList.getSelectedValue();
                     kickButton.setEnabled(selectedUser != null && !selectedUser.equals(currentUser));
                 }
             });
         }
+
+        // Add listener to update online users count
+        onlineListModel.addListDataListener(new ListDataListener() {
+            @Override
+            public void intervalAdded(ListDataEvent e) {
+                updateUsersCount(usersLabel);
+            }
+
+            @Override
+            public void intervalRemoved(ListDataEvent e) {
+                updateUsersCount(usersLabel);
+            }
+
+            @Override
+            public void contentsChanged(ListDataEvent e) {
+                updateUsersCount(usersLabel);
+            }
+        });
 
         add(infoPanel, BorderLayout.NORTH);
     }
@@ -259,22 +275,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         add(inputPanel, BorderLayout.SOUTH);
     }
 
-    private void setupMembersPanel() {
-        JPanel membersPanel = new JPanel();
-        membersPanel.setLayout(new BoxLayout(membersPanel, BoxLayout.Y_AXIS));
-        membersPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        membersPanel.setPreferredSize(new Dimension(200, 0));
-
-        membersList = new JList<>(membersListModel);
-        membersList.setCellRenderer(new MemberListRenderer());
-
-        JScrollPane scrollPane = new JScrollPane(membersList);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("Members"));
-        membersPanel.add(scrollPane);
-
-        add(membersPanel, BorderLayout.EAST);
-    }
-
     private void setupEventHandlers() {
 
         sendButton.addActionListener(e -> handleSendMessage());
@@ -330,7 +330,6 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
             try {
                 currentUser.exitRoom(currentRoom.getName());
                 addSystemMessage(currentUser + " has left the room");
-                membersListModel.removeElement(currentUser);
                 onlineListModel.removeElement(currentUser);
 
                 Timer timer = new Timer(1000, e -> {
@@ -562,20 +561,22 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         membersPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         membersPanel.setPreferredSize(new Dimension(200, 0));
 
-        // Gabungkan online dan offline menjadi satu list
-        DefaultListModel<String> membersListModel = new DefaultListModel<>();
-        JList<String> membersList = new JList<>(membersListModel);
-        membersList.setCellRenderer(new MemberListRenderer());
+        // Online Panel
+        JPanel onlinePanel = new JPanel(new BorderLayout());
+        onlinePanel.setBorder(BorderFactory.createTitledBorder("Online Members"));
+        onlineList.setCellRenderer(new MemberListRenderer(true));
+        onlinePanel.add(new JScrollPane(onlineList), BorderLayout.CENTER);
 
-        JScrollPane scrollPane = new JScrollPane(membersList);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("Members"));
+        // Offline Panel
+        JPanel offlinePanel = new JPanel(new BorderLayout());
+        offlinePanel.setBorder(BorderFactory.createTitledBorder("Offline Members"));
+        offlineList.setCellRenderer(new MemberListRenderer(false));
+        offlinePanel.add(new JScrollPane(offlineList), BorderLayout.CENTER);
 
-        membersPanel.add(scrollPane);
+        membersPanel.add(onlinePanel);
+        membersPanel.add(offlinePanel);
+
         add(membersPanel, BorderLayout.EAST);
-
-        // Simpan reference ke model untuk diakses oleh refresh thread
-        this.membersListModel = membersListModel;
-        this.membersList = membersList;
     }
 
     public void updateUserStatus(String username, boolean isOnline) {
@@ -613,19 +614,23 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     }
 
     private class MemberListRenderer extends DefaultListCellRenderer {
+        private final boolean isOnline;
+
+        public MemberListRenderer(boolean isOnline) {
+            this.isOnline = isOnline;
+        }
+
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                 boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
-            // Set icon default untuk semua member
-            setIcon(userIcon);
-            setForeground(Color.BLACK);
-
-            // Jika member adalah owner, beri icon khusus
-            if (value.equals(currentRoom.getOwner())) {
-                setIcon(ownerIcon);
-                setForeground(new Color(0, 100, 0)); // Warna hijau untuk owner
+            if (isOnline) {
+                setIcon(UIManager.getIcon("OptionPane.informationIcon"));
+                setForeground(new Color(0, 100, 0)); // Hijau gelap
+            } else {
+                setIcon(UIManager.getIcon("OptionPane.errorIcon"));
+                setForeground(Color.GRAY);
             }
 
             return this;
@@ -723,7 +728,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
 
         if (confirm == JOptionPane.YES_OPTION) {
             // Remove from user list
-            membersListModel.removeElement(username);
+            onlineListModel.removeElement(username);
             // Add system message
             addSystemMessage(username + " has been kicked by owner");
 
@@ -913,31 +918,5 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
             insets.bottom = this.insets.bottom;
             return insets;
         }
-    }
-
-    private void startMembersRefreshThread() {
-        new Thread(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
-                try {
-                    // Ambil daftar user terbaru dari room
-                    Set<String> currentMembers = currentRoom.getUsers();
-
-                    // Update UI di EDT (Event Dispatch Thread)
-                    SwingUtilities.invokeLater(() -> {
-                        membersListModel.clear();
-                        for (String member : currentMembers) {
-                            membersListModel.addElement(member);
-                        }
-                    });
-
-                    // Tunggu 500ms sebelum refresh lagi
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }).start();
     }
 }

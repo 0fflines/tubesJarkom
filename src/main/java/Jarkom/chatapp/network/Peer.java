@@ -91,11 +91,18 @@ public class Peer implements Server.PacketListener {
                         newPeerIp, oldSucc, newPeerIp, oldSucc);
                 return;
             } else if ("READY".equals(type)) {
+                if (!isJoining) {
+                    System.out.println("HANDSHAKE FROM SELF");
+                    return;
+                }
                 System.out.println(
                         "\n[SISTEM] Menerima sinyal READY dari " + data + ". Menyambung ulang...");
-                chatClient.closeConnection();
-                chatClient = new Client(data, chatPort);
-                chatClient.initConnection();
+                synchronized (clientLock) {
+                    chatClient.closeConnection();
+                    chatClient = new Client(data, chatPort);
+                    chatClient.initConnection();
+                }
+                isJoining = false;
                 return;
             } else if ("LEAVE_NETWORK".equals(type)) {
                 if (data.equals(chatClient.destinationHost))

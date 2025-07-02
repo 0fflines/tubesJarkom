@@ -12,6 +12,7 @@ import javax.swing.*;
 import javax.swing.border.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.*;
@@ -96,20 +97,25 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
         });
     }
 
-    private ImageIcon loadAndScaleIcon(String path, int width, int height) {
-        try (InputStream is = getClass().getResourceAsStream(path)) {
-            if (is != null) {
-                byte[] bytes = is.readAllBytes();
-                ImageIcon original = new ImageIcon(bytes);
-                Image scaled = original.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-                return new ImageIcon(scaled);
-            }
-            System.err.println("Icon not found: " + path);
-        } catch (Exception e) {
-            System.err.println("Error loading icon: " + path);
-            e.printStackTrace();
+    private ImageIcon loadAndScaleIcon(String resourcePath, int width, int height) {
+        // resourcePath should look like "/Images/room_icon.jpg"
+        InputStream is = getClass().getResourceAsStream(resourcePath);
+        if (is == null) {
+            System.err.println("⚠️ Icon resource not found: " + resourcePath);
+            // Fallback to a transparent placeholder so Swing never crashes
+            Image empty = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            return new ImageIcon(empty);
         }
-        return new ImageIcon(); // Return ikon kosong jika gagal
+        try {
+            byte[] bytes = is.readAllBytes();
+            ImageIcon orig = new ImageIcon(bytes);
+            Image scaled = orig.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaled);
+        } catch (IOException e) {
+            e.printStackTrace();
+            Image empty = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            return new ImageIcon(empty);
+        }
     }
 
     private void setupInfoPanel() {
@@ -270,7 +276,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     }
 
     private void setupEventHandlers() {
-        
+
         sendButton.addActionListener(e -> handleSendMessage());
 
         messageArea.addKeyListener(new KeyAdapter() {
@@ -423,6 +429,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
      */
 
     private void handleSendMessage() {
+        System.out.println("🔔 handleSendMessage() called by " + currentUser.username);
         String text = messageArea.getText().trim();
         if (text.isEmpty() || !isPeerConnected())
             return;

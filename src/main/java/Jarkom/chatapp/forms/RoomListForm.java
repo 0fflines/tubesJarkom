@@ -52,7 +52,7 @@ public class RoomListForm extends JFrame {
         setSize(600, 400);
         setLocationRelativeTo(null);
 
-        //override fungsi exit
+        // override fungsi exit
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent evt) {
@@ -124,25 +124,27 @@ public class RoomListForm extends JFrame {
         }
 
         String roomName = (String) tableModel.getValueAt(selectedRow, 0);
-        Room selectedRoom = rooms.stream()
+        // Grab from the live list instead of the static one
+        Room selectedRoom = currentUser.getRoomList().stream()
                 .filter(r -> r.getName().equals(roomName))
                 .findFirst()
                 .orElse(null);
 
         if (selectedRoom != null) {
-            // Tambahkan user ke room sebelum masuk
-
-            // fungsi ini bakal request buat join room dan kalo requestnya diterima user
-            // join bakal di announce
-            if (currentUser.joinRoom(roomName) == false) {
-                // tampilin window error, user sudah di-ban
-                // buat sekarang asumsi bahwa request bakal selalu sampe, dan response selalu
-                // diterima
+            // Send join request; joinRoom returns false if denied
+            if (!currentUser.joinRoom(roomName)) {
+                JOptionPane.showMessageDialog(this,
+                        "Join request was denied or failed.",
+                        "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
             dispose();
             new ChatRoomForm(currentUser, selectedRoom).setVisible(true);
+        } else {
+            JOptionPane.showMessageDialog(this,
+                    "Selected room not found.",
+                    "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 

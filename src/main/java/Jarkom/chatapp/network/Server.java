@@ -42,18 +42,25 @@ public class Server {
     }
 
     private void handleIncomingConnection(Socket clientSocket) {
-    try ( DataInputStream in  = new DataInputStream(clientSocket.getInputStream());
-          DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream()) )
-    {
-        String packet;
-        // Keep reading until the client actually closes the socket
-        while ((packet = in.readUTF()) != null) {
+        // 1) Log setiap koneksi TCP
+        System.out.println("[Server] got connection from " + clientSocket.getRemoteSocketAddress());
+        try (DataInputStream in = new DataInputStream(clientSocket.getInputStream());
+             DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream())) {
+
+            // 2) Baca tepat satu paket saja
+            String packet = in.readUTF();
+
+            // 3) Proses paket
             packetListener.onPacketReceived(packet, out);
+
+            // 4) Flush reply (jika ada) dan tutup socket agar caller bisa lanjut
+            out.flush();
+            clientSocket.close();
+
+        } catch (EOFException eof) {
+            // normal termination
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-    } catch (EOFException eof) {
-        // Client closed socket — normal termination of this connection
-    } catch (IOException e) {
-        e.printStackTrace();
     }
-}
 }

@@ -407,6 +407,7 @@ public class Peer implements Server.PacketListener {
                 synchronized (clientLock) {
                     this.chatClient.closeConnection(); // tear down old (self‑pointing) client
                     this.chatClient = successorClient; // swap in the real one
+                    System.out.println("[SISTEM] SWAP CHAT CLIENT");
                 }
                 System.out.println("[SISTEM] Bergabung dengan jaringan via " + ip +
                         "; downstream adalah " + successorIp);

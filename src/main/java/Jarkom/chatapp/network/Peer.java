@@ -62,104 +62,81 @@ public class Peer implements Server.PacketListener {
 
     @Override
     public void onPacketReceived(String packet, DataOutputStream replyStream) {
-        String[] parts = packet.split("\\|", 5);
-        String type = parts[0];
-        String data = parts.length > 1 ? parts[1] : "";
-        System.out.println("RECEIVEED " + type);
+        String[] parts = packet.split("\\|", 2);
+        String type = parts[0], payload = parts.length > 1 ? parts[1] : "";
+        System.out.println("RECEIVED " + type);
 
-        // Handshake diproses secara langsung
         try {
+            // —— single‐step join handshake ——
             if ("JOIN_NETWORK".equals(type)) {
-                String newPeerIp = parts[1]; // the joining host X
-
-                // Remember old successor before rewiring
+                String newPeerIp = payload;
                 String oldSucc = chatClient.destinationHost;
-
-                // 1) Tear down current link Y→oldSucc
+                // rewire self (Y→X)
                 synchronized (clientLock) {
-                    chatClient.closeConnection();
-                    // 2) Set Y→X
                     chatClient = new Client(newPeerIp, chatPort);
-                    chatClient.initConnection();
                 }
-
-                // 3) Tell X who should be its successor
+                // reply telling X to hook up to oldSucc
                 replyStream.writeUTF("SUCCESSOR|" + oldSucc);
                 replyStream.flush();
-
-                System.out.printf("[SISTEM] %s meminta JOIN; rewired successor from %s to %s, told them to use %s\n",
-                        newPeerIp, oldSucc, newPeerIp, oldSucc);
+                System.out.printf("[SYSTEM] JOIN_NETWORK: rewired %s→%s, told peer to use %s%n",
+                        hostIp, newPeerIp, oldSucc);
                 return;
-            } else if ("READY".equals(type)) {
-                if (!isJoining) {
-                    System.out.println("HANDSHAKE FROM SELF");
-                    return;
-                }
-                System.out.println(
-                        "\n[SISTEM] Menerima sinyal READY dari " + data + ". Menyambung ulang...");
+            }
+            // —— joiner consumes SUCCESSOR ——
+            else if ("SUCCESSOR".equals(type)) {
+                String succIp = payload;
                 synchronized (clientLock) {
-                    chatClient.closeConnection();
-                    chatClient = new Client(data, chatPort);
-                    chatClient.initConnection();
+                    chatClient = new Client(succIp, chatPort);
                 }
-                isJoining = false;
+                System.out.println("[SYSTEM] SUCCESSOR received; downstream now " + succIp);
                 return;
-            } else if ("LEAVE_NETWORK".equals(type)) {
-                if (data.equals(chatClient.destinationHost))
-                    leaveAck(parts[2], Integer.parseInt(parts[3]));
-                else {
-                    synchronized (clientLock) {
-                        chatClient.forwardPacket(packet);
-                    }
+            }
+            // —— leave network handshake ——
+            else if ("LEAVE_NETWORK".equals(type)) {
+                String[] p = payload.split("\\|", 3);
+                String origin = p[0], linkIp = p[1];
+                int linkPort = Integer.parseInt(p[2]);
+                if (linkIp.equals(chatClient.destinationHost)) {
+                    leaveAck(origin, linkIp, linkPort);
+                } else {
+                    forwardGossip(packet);
                 }
                 return;
             } else if ("LEAVE_ACK".equals(type)) {
-                if (!data.equals(hostIp))
+                if (!payload.equals(hostIp))
                     return;
-                System.out.println("[SISTEM] Menerima ACK_LEAVE dari predecessor");
                 synchronized (leaveLock) {
                     leaveConfirmed = true;
                     leaveLock.notifyAll();
                 }
                 return;
-            } else if ("REQUEST_ROOM".equals(type)) {
-                handleRoomRequest(data, parts[2], parts[3]);
-                return;
-            } else if ("DENY_REQUEST_ROOM".equals(type)) {
-                waitingRoomResponse = false;
-            } else if ("ACCEPT_REQUEST_ROOM".equals(type)) {
-                waitingRoomResponse = false;
-                roomRequestAccepted = true;
             }
-        } catch (
-
-        IOException e) {
-            System.err.println("Error saat handshake: " + e.getMessage());
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+            return;
         }
 
-        // Pesan gossip (CHAT, ROOM_ANNOUNCE, JOIN_ROOM, EXIT_ROOM)
+        // —— gossip messages ——
         if (seenPacketIDs.add(packet)) {
-            if ("CHAT".equals(type)) {
-                handleChatMessage(data);
-            } else if ("ROOM_ANNOUNCE".equals(type)) {
-                System.out.println("ACCEPTED ROOM ANNOUNCE");
-                handleRoomAnnouncement(data, parts[1], parts[2]);
-                for (Room room : this.getRoomList()) {
-                    System.out.println(room.getName());
-                }
-            } else if ("JOIN_ROOM".equals(type)) {
-                // roomname, ip, username
-                handleJoinRoom(data, parts[2], parts[3]);
-            } else if ("EXIT_ROOM".equals(type)) {
-                // roomname, ip, username
-                handleExitRoom(data, parts[2], parts[3]);
-            } else if ("BAN_ANNOUNCE".equals(type)) {
-                handleBanAnnounce(parts[1], parts[2]);
+            String[] p = payload.split("\\|", 3);
+            switch (type) {
+                case "CHAT":
+                    handleChatMessage(payload);
+                    break;
+                case "ROOM_ANNOUNCE":
+                    handleRoomAnnouncement(p[0], p[1], p[2]);
+                    break;
+                case "JOIN_ROOM":
+                    handleJoinRoom(p[0], p[1], p[2]);
+                    break;
+                case "EXIT_ROOM":
+                    handleExitRoom(p[0], p[1], p[2]);
+                    break;
+                case "BAN_ANNOUNCE":
+                    handleBanAnnounce(p[0], p[1]);
+                    break;
             }
-            // Teruskan paket gossip
-            synchronized (clientLock) {
-                chatClient.forwardPacket(packet);
-            }
+            forwardGossip(packet);
         }
     }
 
@@ -196,16 +173,16 @@ public class Peer implements Server.PacketListener {
         System.exit(0);
     }
 
-    private void leaveAck(String newSuccessorIP, int newSuccessorPort) {
+    private void leaveAck(String originIp, String newSuccIp, int newSuccPort) {
         synchronized (clientLock) {
-            String ackPacket = "LEAVE_ACK|" + chatClient.destinationHost;
-            chatClient.forwardPacket(ackPacket);
-            System.out.printf("[SISTEM] %s leaving; recconect to %s : %d\n", chatClient.destinationHost, newSuccessorIP,
-                    newSuccessorPort);
-            chatClient.closeConnection();
-            chatClient = new Client(newSuccessorIP, newSuccessorPort);
-            chatClient.initConnection();
+            // 1) Tell the leaving peer we saw its LEAVE_NETWORK
+            Client ackClient = new Client(originIp, chatPort);
+            ackClient.forwardPacket("LEAVE_ACK|" + hostIp);
+            // 2) Re‑wire our downstream to skip the leaver
+            chatClient = new Client(newSuccIp, newSuccPort);
         }
+        System.out.printf("[SYSTEM] %s left; now downstream is %s:%d%n",
+                originIp, newSuccIp, newSuccPort);
     }
 
     public void handleRoomRequest(String roomName, String ip, String username) {
@@ -369,76 +346,47 @@ public class Peer implements Server.PacketListener {
 
     // Metode discoverAndJoin Anda yang canggih bisa diletakkan di sini.
     // Pastikan untuk menyesuaikan cara ia menggunakan Client dan Server.
+    /**
+     * Scans the LAN, does a one‐step JOIN_NETWORK → SUCCESSOR handshake,
+     * then installs the new downstream client.
+     */
     private void discoverAndJoin() {
         try {
-            // Wait until our ServerSocket is bound
             serverReadyLatch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        } catch (InterruptedException ignored) {
         }
 
-        isJoining = true;
-        System.out.println("\n[SISTEM] Mencari peer lain di jaringan...");
+        System.out.println("[SYSTEM] Scanning for peers...");
         for (int i = 1; i <= 254; i++) {
             String ip = subnet + i;
             if (ip.equals(hostIp))
                 continue;
 
-            String successorIp = null;
+            try (Socket s = new Socket(ip, chatPort);
+                    DataOutputStream out = new DataOutputStream(s.getOutputStream());
+                    DataInputStream in = new DataInputStream(s.getInputStream())) {
 
-            // Phase 1: JOIN on socket s1
-            try (Socket s1 = new Socket()) {
-                s1.connect(new InetSocketAddress(ip, chatPort), 200);
-                DataOutputStream out1 = new DataOutputStream(s1.getOutputStream());
-                DataInputStream in1 = new DataInputStream(s1.getInputStream());
+                // 1) ask to join
+                out.writeUTF("JOIN_NETWORK|" + hostIp);
 
-                out1.writeUTF("JOIN_NETWORK|" + hostIp);
-                String resp = in1.readUTF(); // e.g. "SUCCESSOR|10.0.0.5"
-                successorIp = resp.split("\\|", 2)[1];
+                // 2) get the successor back
+                String resp = in.readUTF(); // "SUCCESSOR|Z"
+                String succIp = resp.split("\\|", 2)[1];
 
-            } catch (IOException joinEx) {
-                // no peer at this ip:port — try the next one
-                continue;
-            }
-
-            // Phase 2: READY on socket s2
-            try (Socket s2 = new Socket()) {
-                System.out.println("connecting to " + successorIp);
-                s2.connect(new InetSocketAddress(successorIp, chatPort), 200);
-                DataOutputStream out2 = new DataOutputStream(s2.getOutputStream());
-                out2.writeUTF("READY|" + hostIp);
-            } catch (IOException readyEx) {
-                // This should rarely happen if JOIN succeeded, but if it does:
-                System.err.println("[WARN] READY failed to " + ip);
-                continue;
-            }
-
-            // Phase 3: establish our outgoing chatClient to the successor
-            System.out.println("connecting to " + successorIp);
-            // Phase 3: establish our outgoing chatClient to the successor
-            Client successorClient = new Client(successorIp, chatPort);
-            if (successorClient.initConnection()) {
+                // 3) install new downstream
                 synchronized (clientLock) {
-                    this.chatClient.closeConnection(); // tear down old (self‑pointing) client
-                    this.chatClient = successorClient; // swap in the real one
-                    System.out.println("[SISTEM] SWAP CHAT CLIENT");
+                    chatClient = new Client(succIp, chatPort);
                 }
-                System.out.println("[SISTEM] Bergabung dengan jaringan via " + ip +
-                        "; downstream adalah " + successorIp);
-                isJoining = false;
-                break; // we found our successor, so stop scanning
-            } else {
-                System.err.println("[ERROR] Gagal connect ke successor " + successorIp);
+                System.out.println("[SYSTEM] Joined via " + ip + "; downstream is " + succIp);
+                return;
+
+            } catch (IOException ignored) {
+                // try next IP
             }
         }
 
-        isJoining = false;
-
-        // If we fell out of the loop without connecting, we're the first peer
-        if (this.chatClient == null || !this.chatClient.isConnectionActive()) {
-            System.out.println("[SISTEM] Tidak menemukan peer lain; memulai jaringan baru.");
-            // chatClient already points to self from constructor
-        }
+        System.out.println("[SYSTEM] No peers found; starting fresh ring.");
+        // chatClient already points at self
     }
 
     public List<Room> getRoomList() {
@@ -538,4 +486,29 @@ public class Peer implements Server.PacketListener {
     public void signalServerReady() {
         serverReadyLatch.countDown();
     }
+
+    private static String pickLocalIp() throws SocketException {
+        for (NetworkInterface nif : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            for (InetAddress addr : Collections.list(nif.getInetAddresses())) {
+                if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
+                    return addr.getHostAddress();
+                }
+            }
+        }
+        throw new RuntimeException("No non-loopback IPv4 found");
+    }
+
+    /**
+     * Send a packet onwards—with no self‐loops.
+     */
+    private void forwardGossip(String packet) {
+        synchronized (clientLock) {
+            if (!chatClient.destinationHost.equals(hostIp)) {
+                chatClient.forwardPacket(packet);
+            } else {
+                System.out.println("[SYSTEM] skipping self‑forward of “" + packet + "”");
+            }
+        }
+    }
+
 }

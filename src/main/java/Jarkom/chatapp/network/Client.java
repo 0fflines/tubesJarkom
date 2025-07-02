@@ -41,15 +41,10 @@ public class Client {
                 out.writeUTF(packet);
                 out.flush();
             }
-<<<<<<< HEAD
-        } else {
-            System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
-=======
         } catch (IOException e) {
             System.err.println("[Client] Gagal mengirim paket ke "
                     + destinationHost + ":" + destinationPort
                     + " — " + e.getMessage());
->>>>>>> 4986a0f4991ec43b2e9e30436a54387d94e5d923
         }
     }
 
@@ -76,8 +71,4 @@ public class Client {
             return false;
         }
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 4986a0f4991ec43b2e9e30436a54387d94e5d923

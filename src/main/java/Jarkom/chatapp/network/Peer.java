@@ -51,16 +51,21 @@ public class Peer implements Server.PacketListener {
     }
 
     private void handleChatMessage(String[] parts) {
-        // parts[0] = roomName
+        // parts: [0]=roomName, [1]=senderIP, [2]=senderName, [3]=content, [4]=msgId
         String senderIP = parts[1];
         String senderName = parts[2];
         String content = parts[3];
-        // parts[4] = msgId (we’ll ignore it in the UI)
 
+        // *** IGNORE your own echo ***
+        if (senderIP.equals(hostIp)) {
+            return;
+        }
+
+        // Build “[name] [ip]\nmessage”
         String formatted = String.format("[%s] [%s]\n%s",
                 senderName, senderIP, content);
 
-        // dispatch to any UI listeners
+        // dispatch to UI listeners
         for (ChatMessageListener l : chatListeners) {
             l.onChatMessage(formatted);
         }
@@ -376,6 +381,7 @@ public class Peer implements Server.PacketListener {
             String resp = in.readUTF(); // e.g. "ROOM_RESPONSE|ACCEPT"
             if ("ROOM_RESPONSE|ACCEPT".equals(resp)) {
                 System.out.println("[SYSTEM] Join accepted for " + roomName);
+                this.activeChatRoom = room;
                 return true;
             } else {
                 System.out.println("[SYSTEM] Join denied for " + roomName);

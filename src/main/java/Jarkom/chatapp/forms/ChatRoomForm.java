@@ -22,7 +22,7 @@ import javax.swing.event.ListDataListener;
 import java.util.Set;
 import java.util.HashSet;
 
-public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener{
+public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     private Peer currentUser;
     private Room currentRoom;
     // private DefaultListModel<String> userListModel;
@@ -73,7 +73,7 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener{
         super.dispose();
     }
 
-    //MENERIMA CHAT DARI LUAR
+    // MENERIMA CHAT DARI LUAR
     @Override
     public void onChatMessage(String formattedMessage) {
         // May come in on a network thread → push to EDT
@@ -83,21 +83,16 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener{
         });
     }
 
-    //PRINT CHAT DARI USER
-    private void displayLocalMessage(String text, String username, String ip) {
+    // PRINT CHAT DARI USER
+    private void displayLocalMessage(String text) {
         SwingUtilities.invokeLater(() -> {
-            String formattedMessage = String.format("[%s]([%s])\n%s",
-                    currentUser.username, currentUser.hostIp, text);
-            if(ip.equals(currentUser.hostIp)){
-            formattedMessage = String.format("[%s](YOU)\n%s",
-                    currentUser.username, text);
-            }
-
-            currentUser.sendMessage(currentRoom.getName(), text);
-
-            messageListModel.addElement(formattedMessage);
-            messageArea.setText("");
+            // Use the same “[name] [tag]\nmessage” pattern:
+            String formatted = String.format("[%s] [YOU]\n%s",
+                    currentUser.username,
+                    text);
+            messageListModel.addElement(formatted);
             messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+            messageArea.setText("");
         });
     }
 
@@ -428,26 +423,14 @@ public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener{
 
     private void handleSendMessage() {
         String text = messageArea.getText().trim();
-        if (text.isEmpty()) {
+        if (text.isEmpty() || !isPeerConnected())
             return;
-        }
 
-        try {
-            // Validasi koneksi peer
-            if (!isPeerConnected()) {
-                showConnectionError();
-                return;
-            }
+        // 1) Display it locally
+        displayLocalMessage(text);
 
-            // Kirim pesan
-            currentUser.sendMessage(currentRoom.getName(), text);
-
-            // Tampilkan pesan lokal
-            displayLocalMessage(text, currentUser.username, currentUser.hostIp);
-
-        } catch (Exception ex) {
-            handleSendError(ex);
-        }
+        // 2) Send into the ring (the peer will ignore echo)
+        currentUser.sendMessage(currentRoom.getName(), text);
     }
 
     private boolean isPeerConnected() {

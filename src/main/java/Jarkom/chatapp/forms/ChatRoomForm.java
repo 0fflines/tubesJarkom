@@ -12,34 +12,23 @@ import javax.swing.*;
 import javax.swing.border.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.*;
 import java.nio.file.*;
-import java.net.Socket;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import java.net.URL;
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
-import java.util.Arrays;
 import java.util.Set;
-import java.util.HashSet;
 
-public class ChatRoomForm extends JFrame {
+public class ChatRoomForm extends JFrame implements Peer.ChatMessageListener {
     private Peer currentUser;
     private Room currentRoom;
-    // private DefaultListModel<String> userListModel;
-
     private JTextArea messageArea;
     private JButton sendButton;
-    // private JList<String> userList;
     private JList<String> messageList;
     private DefaultListModel<String> messageListModel;
-
-    private DefaultListModel<String> onlineListModel = new DefaultListModel<>();
-    private DefaultListModel<String> offlineListModel = new DefaultListModel<>();
-    private JList<String> onlineList = new JList<>(onlineListModel);
-    private JList<String> offlineList = new JList<>(offlineListModel);
+    private DefaultListModel<String> membersListModel;
+    private JList<String> membersList;
 
     private final ImageIcon roomIcon = loadAndScaleIcon("/Images/room_icon.jpg", 20, 20);
     private final ImageIcon ownerIcon = loadAndScaleIcon("/Images/owner_icon.png", 20, 20);
@@ -53,33 +42,60 @@ public class ChatRoomForm extends JFrame {
     public ChatRoomForm(Peer peer, Room room) {
         this.currentUser = peer;
         this.currentRoom = room;
-        this.currentRoom.addUser(peer.hostIp, peer.username); // Add user to room members
         this.messageListModel = new DefaultListModel<>();
+        this.membersListModel = new DefaultListModel<>();
+        this.currentRoom.addUser(peer.hostIp, peer.username);
 
         initComponents();
-        initMembersPanel();
-
-        messageList.setCellRenderer(new MessageCellRenderer());
         setupInfoPanel();
         setupChatPanel();
+        setupMembersPanel();
         setupInputPanel();
         setupEventHandlers();
+
+        currentUser.addChatMessageListener(this);
+        startMembersRefreshThread();
+    }
+    
+    @Override
+    public void dispose() {
+        currentUser.removeChatMessageListener(this);
+        super.dispose();
+    }
+    
+    @Override
+    public void onChatMessage(String formattedMessage) {
+        SwingUtilities.invokeLater(() -> {
+            messageListModel.addElement(formattedMessage);
+            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+        });
+    }
+    
+    private void displayLocalMessage(String text) {
+        SwingUtilities.invokeLater(() -> {
+            String formatted = String.format("[%s] [YOU]\n%s",
+                    currentUser.username, text);
+            messageListModel.addElement(formatted);
+            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
+            messageArea.setText("");
+        });
     }
 
-    private ImageIcon loadAndScaleIcon(String path, int width, int height) {
-        try (InputStream is = getClass().getResourceAsStream(path)) {
-            if (is != null) {
-                byte[] bytes = is.readAllBytes();
-                ImageIcon original = new ImageIcon(bytes);
-                Image scaled = original.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-                return new ImageIcon(scaled);
-            }
-            System.err.println("Icon not found: " + path);
-        } catch (Exception e) {
-            System.err.println("Error loading icon: " + path);
-            e.printStackTrace();
+    private ImageIcon loadAndScaleIcon(String resourcePath, int width, int height) {
+        InputStream is = getClass().getResourceAsStream(resourcePath);
+        if (is == null) {
+            Image empty = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            return new ImageIcon(empty);
         }
-        return new ImageIcon(); // Return ikon kosong jika gagal
+        try {
+            byte[] bytes = is.readAllBytes();
+            ImageIcon orig = new ImageIcon(bytes);
+            Image scaled = orig.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaled);
+        } catch (IOException e) {
+            Image empty = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            return new ImageIcon(empty);
+        }
     }
 
     private void setupInfoPanel() {
@@ -101,19 +117,12 @@ public class ChatRoomForm extends JFrame {
 
         // Owner info
         gbc.gridy = 1;
-        JLabel ownerLabel = new JLabel("Owner: " + currentRoom.getOwner(), ownerIcon, SwingConstants.LEFT);
+        JLabel ownerLabel = new JLabel("Owner: " + currentRoom.getOwnerName(), ownerIcon, SwingConstants.LEFT);
         ownerLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         infoPanel.add(ownerLabel, gbc);
 
-        // Online users count
-        gbc.gridy = 2;
-        JLabel usersLabel = new JLabel("Members: " + (onlineListModel.size() + offlineListModel.size()) + " users",
-                userIcon, SwingConstants.LEFT);
-        usersLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        infoPanel.add(usersLabel, gbc);
-
         // Leave button
-        gbc.gridy = 3;
+        gbc.gridy = 2;
         JButton leaveButton = new JButton("Leave Room", leaveIcon);
         leaveButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
         leaveButton.setBackground(new Color(255, 100, 100));
@@ -122,10 +131,10 @@ public class ChatRoomForm extends JFrame {
         leaveButton.addActionListener(e -> handleLeaveRoom());
         infoPanel.add(leaveButton, gbc);
 
-        // Owner controls (only visible if current user is owner)
-        if (currentUser.equals(currentRoom.getOwner())) {
+        // Owner controls
+        if (currentUser.hostIp.equals(currentRoom.getOwner())) {
             // Close Room button
-            gbc.gridy = 4;
+            gbc.gridy = 3;
             JButton closeButton = new JButton("Close Room", closeIcon);
             closeButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
             closeButton.setBackground(new Color(255, 150, 150));
@@ -135,7 +144,7 @@ public class ChatRoomForm extends JFrame {
             infoPanel.add(closeButton, gbc);
 
             // Kick User button
-            gbc.gridy = 5;
+            gbc.gridy = 4;
             JButton kickButton = new JButton("Kick User", kickIcon);
             kickButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
             kickButton.setBackground(new Color(255, 180, 180));
@@ -143,50 +152,48 @@ public class ChatRoomForm extends JFrame {
             kickButton.setBorder(new RoundBorder(Color.WHITE, 8));
             kickButton.setEnabled(false);
             kickButton.addActionListener(e -> {
-                String selectedUser = onlineList.getSelectedValue();
+                String selectedUser = membersList.getSelectedValue();
                 if (selectedUser != null) {
                     handleKickUser(selectedUser);
                 }
             });
             infoPanel.add(kickButton, gbc);
 
-            // Add selection listener to online list
-            onlineList.addListSelectionListener(e -> {
+            membersList.addListSelectionListener(e -> {
                 if (!e.getValueIsAdjusting()) {
-                    String selectedUser = onlineList.getSelectedValue();
-                    kickButton.setEnabled(selectedUser != null && !selectedUser.equals(currentUser));
+                    String selectedUser = membersList.getSelectedValue();
+                    kickButton.setEnabled(selectedUser != null && !selectedUser.equals(currentUser.username));
                 }
             });
         }
 
-        // Add listener to update online users count
-        onlineListModel.addListDataListener(new ListDataListener() {
-            @Override
-            public void intervalAdded(ListDataEvent e) {
-                updateUsersCount(usersLabel);
-            }
-
-            @Override
-            public void intervalRemoved(ListDataEvent e) {
-                updateUsersCount(usersLabel);
-            }
-
-            @Override
-            public void contentsChanged(ListDataEvent e) {
-                updateUsersCount(usersLabel);
-            }
-        });
-
         add(infoPanel, BorderLayout.NORTH);
     }
 
-    private void updateUsersCount(JLabel usersLabel) {
-        // Hitung unik user online
-        Set<String> uniqueUsers = new HashSet<>();
-        for (int i = 0; i < onlineListModel.size(); i++) {
-            uniqueUsers.add(onlineListModel.getElementAt(i));
-        }
-        usersLabel.setText("Online: " + uniqueUsers.size() + " users");
+    private void startMembersRefreshThread() {
+        new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    // Ambil daftar user terbaru dari room
+                    Set<String> currentMembers = currentRoom.getUsers();
+
+                    // Update UI di EDT (Event Dispatch Thread)
+                    SwingUtilities.invokeLater(() -> {
+                        membersListModel.clear();
+                        for (String member : currentMembers) {
+                            membersListModel.addElement(member);
+                        }
+                    });
+
+                    // Tunggu 500ms sebelum refresh lagi
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
     }
 
     private void setupChatPanel() {
@@ -201,19 +208,31 @@ public class ChatRoomForm extends JFrame {
 
         JScrollPane messageScroll = new JScrollPane(messageList);
         messageScroll.setBorder(new RoundBorder(new Color(200, 200, 200), 10));
-
-        // Ganti user list dengan members panel
-        initMembersPanel(); // Pindahkan ini ke sini
-
+        
         chatPanel.add(messageScroll, BorderLayout.CENTER);
         add(chatPanel, BorderLayout.CENTER);
+    }
+    
+    private void setupMembersPanel() {
+        JPanel membersPanel = new JPanel();
+        membersPanel.setLayout(new BoxLayout(membersPanel, BoxLayout.Y_AXIS));
+        membersPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        membersPanel.setPreferredSize(new Dimension(200, 0));
+
+        membersList = new JList<>(membersListModel);
+        membersList.setCellRenderer(new MemberListRenderer());
+        
+        JScrollPane scrollPane = new JScrollPane(membersList);
+        scrollPane.setBorder(BorderFactory.createTitledBorder("Members"));
+        membersPanel.add(scrollPane);
+        
+        add(membersPanel, BorderLayout.EAST);
     }
 
     private void setupInputPanel() {
         JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
         inputPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
 
-        // Attach button with icon
         JButton attachButton = new JButton(attachIcon);
         attachButton.setPreferredSize(new Dimension(40, 40));
         attachButton.setToolTipText("Attach File");
@@ -221,14 +240,12 @@ public class ChatRoomForm extends JFrame {
         attachButton.setContentAreaFilled(false);
         attachButton.addActionListener(e -> handleAttachFile());
 
-        // Message area
         messageArea = new JTextArea(4, 30);
         messageArea.setLineWrap(true);
 
-        // Send button
         sendButton = new JButton("Send");
+        sendButton.addActionListener(e -> handleSendMessage());
 
-        // Layout
         JPanel leftPanel = new JPanel(new BorderLayout());
         leftPanel.add(attachButton, BorderLayout.WEST);
         leftPanel.add(new JScrollPane(messageArea), BorderLayout.CENTER);
@@ -291,8 +308,8 @@ public class ChatRoomForm extends JFrame {
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {
-                addSystemMessage(currentUser + " has left the room");
-                onlineListModel.removeElement(currentUser);
+                currentUser.exitRoom(currentRoom.getName());
+                addSystemMessage(currentUser.username + " has left the room");
 
                 Timer timer = new Timer(1000, e -> {
                     this.dispose();
@@ -300,7 +317,6 @@ public class ChatRoomForm extends JFrame {
                 });
                 timer.setRepeats(false);
                 timer.start();
-
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(
                         this,
@@ -365,65 +381,13 @@ public class ChatRoomForm extends JFrame {
         return lower.endsWith(".jpg") || lower.endsWith(".jpeg")
                 || lower.endsWith(".png") || lower.endsWith(".gif");
     }
-    /*
-     * private void sendFileToServer(String fileName, byte[] fileData) {
-     * try (Socket socket = new Socket("localhost", 1234);
-     * OutputStream out = socket.getOutputStream()) {
-     * 
-     * // Create file info string
-     * String fileInfo = currentRoom.getName() + "|" +
-     * currentUser + "|" +
-     * fileName + "|" +
-     * fileData.length;
-     * 
-     * // Send data
-     * out.write(fileInfo.getBytes());
-     * out.write(fileData);
-     * out.flush();
-     * 
-     * } catch (Exception e) {
-     * JOptionPane.showMessageDialog(this,
-     * "Failed to send file to server",
-     * "Error",
-     * JOptionPane.ERROR_MESSAGE);
-     * }
-     * }
-     */
 
     private void handleSendMessage() {
         String text = messageArea.getText().trim();
-        if (text.isEmpty()) {
-            return;
-        }
+        if (text.isEmpty() || !currentUser.isConnected()) return;
 
-        try {
-            // Validasi koneksi peer
-            if (!isPeerConnected()) {
-                showConnectionError();
-                return;
-            }
-
-            // Kirim pesan
-            currentUser.sendMessage(currentRoom.getName(), text);
-
-            // Tampilkan pesan lokal
-            displayLocalMessage(text);
-
-        } catch (Exception ex) {
-            handleSendError(ex);
-        }
-    }
-
-    private void displayLocalMessage(String text) {
-        SwingUtilities.invokeLater(() -> {
-            String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-            String formattedMessage = String.format("[%s] [%s]\n%s",
-                    currentUser, time, text);
-
-            messageListModel.addElement(formattedMessage);
-            messageArea.setText("");
-            messageList.ensureIndexIsVisible(messageListModel.getSize() - 1);
-        });
+        displayLocalMessage(text);
+        currentUser.sendMessage(currentRoom.getName(), text);
     }
 
     private boolean isPeerConnected() {
@@ -451,55 +415,28 @@ public class ChatRoomForm extends JFrame {
         System.err.println("Error sending message: " + ex.getMessage());
         ex.printStackTrace();
     }
-    /*
-     * private ImageIcon loadIcon(String path) {
-     * try {
-     * // Cara 1: Menggunakan getResourceAsStream (lebih robust)
-     * InputStream is = getClass().getResourceAsStream(path);
-     * if (is != null) {
-     * byte[] bytes = is.readAllBytes();
-     * return new ImageIcon(bytes);
-     * }
-     * 
-     * // Cara 2: Fallback dengan getResource (untuk debugging)
-     * URL url = getClass().getResource(path);
-     * if (url != null) {
-     * System.out.println("Found icon at: " + url.toString());
-     * return new ImageIcon(url);
-     * }
-     * 
-     * System.err.println("Icon not found: " + path);
-     * } catch (Exception e) {
-     * System.err.println("Error loading icon " + path + ": " + e.getMessage());
-     * }
-     * return new ImageIcon(); // Return ikon kosong jika gagal
-     * }
-     */
-    /*
-     * private JPanel createInfoPanel() {
-     * JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-     * 
-     * // Room info dengan ikon
-     * JLabel roomLabel = new JLabel("Room: " + currentRoom.getName(), roomIcon,
-     * SwingConstants.LEFT);
-     * 
-     * // Owner info dengan ikon
-     * JLabel ownerLabel = new JLabel("Owner: " + currentRoom.getOwner(), ownerIcon,
-     * SwingConstants.LEFT);
-     * 
-     * // Leave button dengan ikon
-     * JButton leaveButton = new JButton("Leave", leaveIcon);
-     * leaveButton.setVerticalTextPosition(SwingConstants.BOTTOM);
-     * leaveButton.setHorizontalTextPosition(SwingConstants.CENTER);
-     * 
-     * panel.add(roomLabel);
-     * panel.add(ownerLabel);
-     * panel.add(leaveButton);
-     * 
-     * return panel;
-     * }
-     */
 
+    private void initComponents() {
+        setTitle("Chat App - " + currentRoom.getName() + " (" + currentUser.username + ")");
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        setSize(900, 650);
+        setLocationRelativeTo(null);
+        setLayout(new BorderLayout());
+
+        setupInfoPanel();
+        setupChatPanel();
+        initMembersPanel();  // Panggil method initMembersPanel di sini
+        setupInputPanel();
+        startMembersRefreshThread();  // Mulai thread refresh
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                handleLeaveRoom();
+            }
+        });
+    }
+    /*
     private void initComponents() {
         setTitle("Chat App - " + currentRoom.getName() + " (" + currentUser + ")");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
@@ -539,119 +476,49 @@ public class ChatRoomForm extends JFrame {
             }
         });
     }
-
+*/
     private void initMembersPanel() {
         JPanel membersPanel = new JPanel();
         membersPanel.setLayout(new BoxLayout(membersPanel, BoxLayout.Y_AXIS));
         membersPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         membersPanel.setPreferredSize(new Dimension(200, 0));
 
-        // Online Panel
-        JPanel onlinePanel = new JPanel(new BorderLayout());
-        onlinePanel.setBorder(BorderFactory.createTitledBorder("Online Members"));
-        onlineList.setCellRenderer(new MemberListRenderer(true));
-        onlinePanel.add(new JScrollPane(onlineList), BorderLayout.CENTER);
+        // Gabungkan online dan offline menjadi satu list
+        DefaultListModel<String> membersListModel = new DefaultListModel<>();
+        JList<String> membersList = new JList<>(membersListModel);
+        membersList.setCellRenderer(new MemberListRenderer());
 
-        // Offline Panel
-        JPanel offlinePanel = new JPanel(new BorderLayout());
-        offlinePanel.setBorder(BorderFactory.createTitledBorder("Offline Members"));
-        offlineList.setCellRenderer(new MemberListRenderer(false));
-        offlinePanel.add(new JScrollPane(offlineList), BorderLayout.CENTER);
+        JScrollPane scrollPane = new JScrollPane(membersList);
+        scrollPane.setBorder(BorderFactory.createTitledBorder("Members"));
 
-        membersPanel.add(onlinePanel);
-        membersPanel.add(offlinePanel);
-
+        membersPanel.add(scrollPane);
         add(membersPanel, BorderLayout.EAST);
-    }
 
-    public void updateUserStatus(String username, boolean isOnline) {
-
-        SwingUtilities.invokeLater(() -> {
-            if (isOnline) {
-                if (!onlineListModel.contains(username)) {
-                    onlineListModel.addElement(username);
-                }
-                offlineListModel.removeElement(username);
-            } else {
-                if (!offlineListModel.contains(username)) {
-                    offlineListModel.addElement(username);
-                }
-                onlineListModel.removeElement(username);
-            }
-
-            // Update tampilan jumlah member
-            updateMemberCountDisplay();
-        });
-    }
-
-    private void updateMemberCountDisplay() {
-        Component[] components = getContentPane().getComponents();
-        for (Component comp : components) {
-            if (comp instanceof JPanel) {
-                for (Component subComp : ((JPanel) comp).getComponents()) {
-                    if (subComp instanceof JLabel && ((JLabel) subComp).getText().startsWith("Members:")) {
-                        ((JLabel) subComp).setText(
-                                "Members: " + currentRoom.getTotalMembers());
-                    }
-                }
-            }
-        }
+        // Simpan reference ke model untuk diakses oleh refresh thread
+        this.membersListModel = membersListModel;
+        this.membersList = membersList;
     }
 
     private class MemberListRenderer extends DefaultListCellRenderer {
-        private final boolean isOnline;
-
-        public MemberListRenderer(boolean isOnline) {
-            this.isOnline = isOnline;
-        }
-
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                 boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
-            if (isOnline) {
-                setIcon(UIManager.getIcon("OptionPane.informationIcon"));
-                setForeground(new Color(0, 100, 0)); // Hijau gelap
-            } else {
-                setIcon(UIManager.getIcon("OptionPane.errorIcon"));
-                setForeground(Color.GRAY);
+            setIcon(userIcon);
+            setForeground(Color.BLACK);
+
+            if (value.equals(currentRoom.getOwnerName())) {
+                setIcon(ownerIcon);
+                setForeground(new Color(0, 100, 0));
             }
 
             return this;
         }
     }
 
-    public void handleStatusNotification(String username, boolean onlineStatus) {
-        updateUserStatus(username, onlineStatus);
-
-        if (onlineStatus) {
-            addSystemMessage(username + " is now online");
-        } else {
-            addSystemMessage(username + " is now offline");
-        }
-    }
-    /*
-     * private JPanel createInputPanel() {
-     * JPanel panel = new JPanel(new BorderLayout(5, 5));
-     * 
-     * // Attachment button dengan ikon
-     * JButton attachButton = new JButton(attachIcon);
-     * attachButton.setToolTipText("Attach file");
-     * attachButton.setPreferredSize(new Dimension(30, 30));
-     * 
-     * // Message area
-     * messageArea = new JTextArea(3, 30);
-     * 
-     * panel.add(attachButton, BorderLayout.WEST);
-     * panel.add(new JScrollPane(messageArea), BorderLayout.CENTER);
-     * 
-     * return panel;
-     * }
-     */
-
     private void handleCloseRoom() {
-        if (!currentUser.equals(currentRoom.getOwner())) {
+        if (!currentUser.hostIp.equals(currentRoom.getOwner())) {
             JOptionPane.showMessageDialog(this,
                     "Only room owner can close the room",
                     "Error", JOptionPane.ERROR_MESSAGE);
@@ -666,17 +533,10 @@ public class ChatRoomForm extends JFrame {
                 JOptionPane.WARNING_MESSAGE);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            // 1. Kirim notifikasi ke semua pengguna
             addSystemMessage("Room closed by owner");
-
-            // 2. Hapus room dari daftar (RoomListForm)
             RoomListForm.removeRoom(currentRoom.getName());
-            notifyRoomClosed();
-            // 3. Tutup form dan kembali ke room list
             dispose();
             new RoomListForm(currentUser).setVisible(true);
-
-            // TODO: Di sini tambahkan kode untuk memutuskan semua pengguna lain via socket
         }
     }
 
@@ -712,12 +572,8 @@ public class ChatRoomForm extends JFrame {
                 JOptionPane.QUESTION_MESSAGE);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            // Remove from user list
-            onlineListModel.removeElement(username);
-            // Add system message
+            membersListModel.removeElement(username);
             addSystemMessage(username + " has been kicked by owner");
-
-            // TODO: Add server notification for actual kick implementation
         }
     }
 

@@ -4,28 +4,32 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Set;
 
 // NOTE: Versi ini tidak menggunakan komponen Swing agar tetap sederhana
 // dan sesuai dengan logika konsol yang ada di Peer Anda.
 public class Room {
     private final String roomName;
-    private final String owner;
+    private final String ownerIp;
     private LocalDateTime lastAnnounced;
     private HashMap<String, String> currUsers;
     private HashSet<String> bannedUsers;
     private String createdAt;
+    private final String ownerName;
 
-    public Room(String name, String owner, String createdAt) {
+    public Room(String name, String ownerIp, String createdAt, String ownerName) {
         this.roomName = name;
-        this.owner = owner;
+        this.ownerIp = ownerIp;
         this.lastAnnounced = LocalDateTime.now();
+        this.ownerName = ownerName;
         this.createdAt = createdAt;
         currUsers = new HashMap<>();
-        System.out.println("--- Info: Room '" + name + "' (Owner: " + owner + ") terdeteksi/dibuat. ---");
+        bannedUsers = new HashSet<>();
+        System.out.println("--- Info: Room '" + name + "' (Owner: " + ownerIp + ") terdeteksi/dibuat. ---");
     }
 
     public String getName() { return roomName; }
-    public String getOwner() { return owner; }
+    public String getOwner() { return ownerIp; }
 
     public void updateLastAnnounced() { this.lastAnnounced = LocalDateTime.now(); }
 
@@ -64,5 +68,13 @@ public class Room {
 
     public String getFormattedCreatedAt(){
         return createdAt;
+    }
+
+    public String getOwnerName(){
+        return ownerName;
+    }
+    
+    public Set<String> getUsers() {
+        return new HashSet<>(this.currUsers.values());
     }
 }

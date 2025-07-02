@@ -32,16 +32,24 @@ public class Client {
     }
 
     public void forwardPacket(String packet) {
-        if (out != null) {
-            try {
+        System.out.println("[Client] Opening new socket to "
+                + destinationHost + ":" + destinationPort
+                + " → sending “" + packet + "”");
+        try (Socket sock = new Socket()) {
+            sock.connect(new InetSocketAddress(destinationHost, destinationPort), 500);
+            try (DataOutputStream out = new DataOutputStream(sock.getOutputStream())) {
                 out.writeUTF(packet);
                 out.flush();
-            } catch (IOException e) {
-                System.err.println("[Client] Gagal mengirim paket. Mencoba menyambung ulang...");
-                initConnection(); // Coba sambung ulang jika gagal
             }
+<<<<<<< HEAD
         } else {
             System.err.println("[Client] Tidak terhubung. Tidak bisa mengirim paket.");
+=======
+        } catch (IOException e) {
+            System.err.println("[Client] Gagal mengirim paket ke "
+                    + destinationHost + ":" + destinationPort
+                    + " — " + e.getMessage());
+>>>>>>> 4986a0f4991ec43b2e9e30436a54387d94e5d923
         }
     }
 
@@ -68,4 +76,8 @@ public class Client {
             return false;
         }
     }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 4986a0f4991ec43b2e9e30436a54387d94e5d923

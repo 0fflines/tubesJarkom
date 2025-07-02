@@ -70,19 +70,26 @@ public class Peer implements Server.PacketListener {
         // Handshake diproses secara langsung
         try {
             if ("JOIN_NETWORK".equals(type)) {
-                lastJoinRequesterHost = data;
-                String successorHost = (chatClient != null) ? chatClient.destinationHost : hostIp;
-                replyStream.writeUTF("SUCCESSOR|" + successorHost);
-                System.out.println("\n[SISTEM] Merespon permintaan JOIN dari " + data);
+                String newPeerIp = parts[1]; // the joining host X
+
+                // Remember old successor before rewiring
+                String oldSucc = chatClient.destinationHost;
+
+                // 1) Tear down current link Y→oldSucc
+                synchronized (clientLock) {
+                    chatClient.closeConnection();
+                    // 2) Set Y→X
+                    chatClient = new Client(newPeerIp, chatPort);
+                    chatClient.initConnection();
+                }
+
+                // 3) Tell X who should be its successor
+                replyStream.writeUTF("SUCCESSOR|" + oldSucc);
+                replyStream.flush();
+
+                System.out.printf("[SISTEM] %s meminta JOIN; rewired successor from %s to %s, told them to use %s\n",
+                        newPeerIp, oldSucc, newPeerIp, oldSucc);
                 return;
-                // } else if ("READY".equals(type) && !isJoining) {
-                // System.out.println(
-                // "\n[SISTEM] Menerima sinyal READY dari " + lastJoinRequesterHost + ".
-                // Menyambung ulang...");
-                // chatClient.closeConnection();
-                // chatClient = new Client(lastJoinRequesterHost, chatPort);
-                // chatClient.initConnection();
-                // return;
             } else if ("READY".equals(type)) {
                 System.out.println(
                         "\n[SISTEM] Menerima sinyal READY dari " + data + ". Menyambung ulang...");
